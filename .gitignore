@@ -3,3 +3,15 @@ __pycache__/
 *.pyc
 .env
 .DS_Store
+
+# Package caches
+core/__pycache__/
+faq/__pycache__/
+tests/__pycache__/
+
+# Runtime/generated test artifacts
+.workspace_report.json
+.report.json
+workspace_context/
+workspace_tests/dynamic/
+workspace_tests/cached/

@@ -1,19 +1,19 @@
 import streamlit as st
 import os
-import parser
+from core import parser
 import zipfile
 import io
 import re
 import streamlit.components.v1 as components
 import pandas as pd
 import plotly.express as px
-import fix_code_with_ai
-from fix_code_with_ai import AVAILABLE_MODELS, DEFAULT_MODEL
-import convert_docstring_style
-import generate_workspace_tests
+from core import convert_docstring_style
+from core import fix_code_with_ai
+from core import generate_workspace_tests
+from core.fix_code_with_ai import AVAILABLE_MODELS, DEFAULT_MODEL
 import importlib
-from faq_data import FAQ_DATA
-from faq_component import get_current_screen_id, render_faq_button, render_faq_popup
+from faq.faq_data import FAQ_DATA
+from faq.faq_component import get_current_screen_id, render_faq_button, render_faq_popup
 
 def compress_name(name, max_len=18):
     """Universal utility to shorten long filenames/paths with ellipsis in the middle."""
@@ -2214,6 +2214,52 @@ def render_overall_dashboard():
                             for item in os.listdir(static_source):
                                 if item.endswith(".py"):
                                     shutil.copy2(os.path.join(static_source, item), os.path.join(fixed_test_dir, item))
+
+                        # Keep Test/ untouched in repo, but rewrite imports in copied fixed tests
+                        # to match the restructured package layout.
+                        fixed_import_map = {
+                            r"^\s*import\s+parser\b": "from core import parser",
+                            r"^\s*from\s+parser\s+import\s+": "from core.parser import ",
+                            r"^\s*import\s+fix_code_with_ai\b": "from core import fix_code_with_ai",
+                            r"^\s*from\s+fix_code_with_ai\s+import\s+": "from core.fix_code_with_ai import ",
+                            r"^\s*import\s+convert_docstring_style\b": "from core import convert_docstring_style",
+                            r"^\s*from\s+convert_docstring_style\s+import\s+": "from core.convert_docstring_style import ",
+                            r"^\s*import\s+generate_workspace_tests\b": "from core import generate_workspace_tests",
+                            r"^\s*from\s+generate_workspace_tests\s+import\s+": "from core.generate_workspace_tests import ",
+                            r"^\s*from\s+faq_data\s+import\s+": "from faq.faq_data import ",
+                            r"^\s*from\s+faq_component\s+import\s+": "from faq.faq_component import ",
+                        }
+
+                        if os.path.exists(fixed_test_dir):
+                            for item in os.listdir(fixed_test_dir):
+                                if not item.endswith(".py"):
+                                    continue
+                                fixed_path = os.path.join(fixed_test_dir, item)
+                                try:
+                                    with open(fixed_path, "r", encoding="utf-8") as rf:
+                                        fixed_raw = rf.read()
+                                    for pattern, repl in fixed_import_map.items():
+                                        fixed_raw = re.sub(pattern, repl, fixed_raw, flags=re.MULTILINE)
+
+                                    # Also rewrite patch target strings used by unittest.mock.patch.
+                                    # Example: @patch("convert_docstring_style.get_client")
+                                    patch_string_map = {
+                                        '"convert_docstring_style.': '"core.convert_docstring_style.',
+                                        "'convert_docstring_style.": "'core.convert_docstring_style.",
+                                        '"fix_code_with_ai.': '"core.fix_code_with_ai.',
+                                        "'fix_code_with_ai.": "'core.fix_code_with_ai.",
+                                        '"generate_workspace_tests.': '"core.generate_workspace_tests.',
+                                        "'generate_workspace_tests.": "'core.generate_workspace_tests.",
+                                        '"parser.': '"core.parser.',
+                                        "'parser.": "'core.parser.",
+                                    }
+                                    for old_ref, new_ref in patch_string_map.items():
+                                        fixed_raw = fixed_raw.replace(old_ref, new_ref)
+
+                                    with open(fixed_path, "w", encoding="utf-8") as wf:
+                                        wf.write(fixed_raw)
+                                except Exception:
+                                    pass
                         
                         # 4. Layer 2: Generate Dynamic Tests (Turbo Parallel Approach)
                         progress_text = st.empty()

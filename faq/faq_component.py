@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 import streamlit as st
 import streamlit.components.v1 as components
 
-from faq_data import FAQ_DATA
+from faq.faq_data import FAQ_DATA
 
 
 def _sync_faq_bridge_state() -> None:

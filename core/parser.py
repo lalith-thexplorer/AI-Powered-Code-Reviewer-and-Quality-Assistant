@@ -4,7 +4,7 @@ import tempfile
 import subprocess
 import os
 from typing import List, Dict, Any
-import convert_docstring_style
+from core import convert_docstring_style
 
 # Cosmetic pydocstyle codes that are always ignored (standard behaviour)
 _IGNORED_CODES = {
