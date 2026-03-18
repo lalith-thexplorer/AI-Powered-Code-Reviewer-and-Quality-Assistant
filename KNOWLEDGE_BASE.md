@@ -1,6 +1,6 @@
 # AI Code Reviewer — Knowledge Base Document
 
-This document describes every screen, section, element, and action in the AI Code Reviewer application. An AI agent will use this to answer user questions about features, how to use the app, and what to expect from each action.
+This document describes every screen, section, element, and action in the AI Code Reviewer application.
 
 ---
 
