@@ -1,0 +1,31 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.11.6, pytest-9.0.2, pluggy-1.6.0
+rootdir: D:\AI_Powered_CRQA
+plugins: anyio-4.12.1, langsmith-0.7.7
+collected 13 items
+
+Test\test_coverage_reporter.py ....                                      [ 30%]
+Test\test_dashboard.py ...                                               [ 53%]
+Test\test_generator.py .                                                 [ 61%]
+Test\test_llm_integration.py .                                           [ 69%]
+Test\test_parser.py ..                                                   [ 84%]
+Test\test_validation.py F.                                               [100%]
+
+================================== FAILURES ===================================
+___________________________ test_pydocstyle_errors ____________________________
+
+    def test_pydocstyle_errors():
+        code = '''def calculate():\n    """Docstring."""\n    pass'''
+    
+        # parse_file will internally run the linters and catch what it can.
+        # We mainly test that the results structure contains what we expect.
+        res = parse_file(code)
+    
+        assert "total_docstring_errors" in res
+>       assert "error_distribution" in res
+E       AssertionError: assert 'error_distribution' in {'coverage': 100.0, 'detected_style': 'Google', 'functions': [{'docstring': 'Docstring.', 'docstring_errors': [], 'end_line': 3, 'has_docstring': True, ...}], 'total_docstring_errors': 0, ...}
+
+Test\test_validation.py:13: AssertionError
+=========================== short test summary info ===========================
+FAILED Test/test_validation.py::test_pydocstyle_errors - AssertionError: asse...
+======================== 1 failed, 12 passed in 2.10s =========================

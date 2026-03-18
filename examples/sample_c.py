@@ -5,11 +5,7 @@ A simple module demonstrating clean function definitions and docstrings.
 
 def calculate_bmi(weight_kg, height_m):
     """
-    Calculates the Body Mass Index (BMI).
-
-    Args:
-        weight_kg (float): The weight of the person in kilograms.
-        height_m (float): The height of the person in meters.
+    
 
     Returns:
         float: The calculated BMI value.
