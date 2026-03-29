@@ -80,7 +80,7 @@ This document describes every screen, section, element, and action in the AI Cod
 
 - Most tests are cached after the initial generation, so subsequent runs are much faster (under 5 seconds).
 
-- Use "Clear Cache" to force regeneration of tests if you believe the cached versions are outdated. This deletes cached test files but keeps the health snapshot.
+- Use "Clear Cache" to force regeneration of tests if you believe the cached versions are outdated. This deletes cached test files and regenerates them from scratch on the next run.
 
 - You can view the source code of generated tests by clicking a function row; this helps verify test quality before using them in your CI/CD pipeline.
 
@@ -93,14 +93,14 @@ This document describes every screen, section, element, and action in the AI Cod
 Q: Why does it say a test is "skipped"?
 A: Skipped means the AI generator couldn't create a test for that function. Common reasons: the function is a simple helper with no meaningful test, the API hit a rate limit during generation, or the code structure makes testing impractical. Retry with "Clear Cache" if you believe this was an error.
 
-Q: What's the difference between "health snapshot tests" and "project tests"?
-A: Health snapshot tests are generated once as a baseline when you first upload your workspace. Project tests are the main test suite generated every time you run the Tests tab. Health snapshot helps track if code stability changes over time.
+Q: What cached test data does the app keep?
+A: The app caches AI-generated test suites per file. When you clear the cache, previously generated tests are deleted and regenerated from scratch on the next run.
 
 Q: Why is the first run of Tests so slow?
 A: The AI needs to analyze each function and generate test code for the first time. This can take 10-30 seconds for 50-100 functions. Subsequent runs are cached and much faster.
 
 Q: What happens when I click "Clear Cache"?
-A: This deletes all cached AI-generated tests, forcing a fresh generation. The health snapshot baseline test is preserved. Use this if you update code and want fresh tests, or if cached tests seem outdated.
+A: This deletes all cached AI-generated tests, forcing a fresh generation on the next run. Use this if you update code and want fresh tests, or if cached tests seem outdated.
 
 Q: Can I see the code of the generated tests?
 A: Yes. Click on any function row in the tests table to open the File Tab, where you can view the generated test code. This helps you verify quality before copying tests into your actual test suite.
@@ -202,7 +202,7 @@ A: All files and workspace data are cleared immediately when you close the app. 
 
 **TIPS:**
 
-- Use Home as your starting point after uploading. It gives you a quick health snapshot: how many files you have, how many functions, and what percentage are documented.
+- Use Home as your starting point after uploading. It gives you a quick overview: how many files you have, how many functions, and what percentage are documented.
 
 - Color-coded metrics make it easy to spot weak areas at a glance: green = good, yellow = partial, red = needs work.
 
@@ -799,7 +799,7 @@ A: Yes. Help documentation is built-in. You don't need internet to access it. Th
     - If errors: List of broken rules per function. Each error shows:
       - Function name.
       - Line number of the error within the docstring.
-      - Error code (e.g., "D100").
+      - Error code (e.g., "D200", "D401", "DAR101").
       - Human-readable message describing the violation.
     - Model selector dropdown: "Choose an AI Model to fix this file" (allows per-file model override).
     - `🔧 Fix {filename} with AI` button — Runs AI fix on that file only.
@@ -837,16 +837,17 @@ A: Yes. Help documentation is built-in. You don't need internet to access it. Th
 
 - You can only validate and fix files that are fully documented (all functions have docstrings). If a file is incomplete, go to DocStrings tab to generate missing docstrings first.
 
-- "PEP/Params" errors include things like:
-  - D100: Missing module docstring.
-  - D parameters: Missing or incorrectly documented function parameters.
-  - D401: First line should be imperative mood.
+- Validation errors are driven by two standards:
+  - **PEP 257 style violations** (D200, D400-D415, D205, D212, D300, D412, D413): Formatting and structure issues like missing summary lines, imperative mood violations, and quote style.
+  - **Parameter documentation (DAR codes)** (DAR101, DAR201, DAR301): Missing Args, Returns, or Raises sections in docstrings.
 
 - The AI fix is smart but not perfect. Always review generated docstrings to ensure they're accurate.
 
 - You can fix all files at once using "Fix All with AI" or fix them one at a time to have more control.
 
 - Use per-file model selection to try different models on tricky files if one model's fixes aren't satisfactory.
+
+- Detailed explanations of every error code are available in the Validation screen FAQ (hover or click the question mark icon).
 
 **KNOWN ISSUES:**
 
@@ -860,8 +861,8 @@ A: Yes. Help documentation is built-in. You don't need internet to access it. Th
 Q: Why does it say my files are skipped?
 A: Files are skipped if they have incomplete docstrings (not all functions are documented). Validation only works on fully documented files. Go to DocStrings tab to generate missing docstrings first.
 
-Q: What do the error codes like "D100" and "D401" mean?
-A: These are PEP 257 error codes indicating specific docstring violations. D100 = missing module docstring, D401 = first line should be imperative mood. Darglint provides detailed explanations for each code.
+Q: What do the error codes like D200 and D401 mean?
+A: These are PEP 257 docstring style codes and Darglint parameter documentation codes. The Validation screen FAQ now includes detailed explanations for all supported error codes (D200, D400-D415, DAR101, DAR201, DAR301, etc.). See the in-app FAQ on the Validation screen for complete error code reference.
 
 Q: How long does it take to fix a file with AI?
 A: Typically 5-20 seconds per file, depending on file size and AI model speed. Large files may take longer. You can monitor progress with the "AI is fixing..." spinner.

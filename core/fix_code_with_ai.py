@@ -14,13 +14,13 @@ def get_client():
     return _client
 
 AVAILABLE_MODELS = {
-    "llama-3.3-70b-versatile":                    "⚡ Llama 3.3 70B (Default)",
-    "openai/gpt-oss-120b":                         "🧠 GPT-OSS 120B",
+    "llama-3.3-70b-versatile":                    "⚡ Llama 3.3 70B",
+    "openai/gpt-oss-120b":                         "🧠 GPT-OSS 120B (Default)",
     "qwen/qwen3-32b":                              "🌊 Qwen3 32B",
     "moonshotai/kimi-k2-instruct":                 "🌙 Kimi K2",
 }
 
-DEFAULT_MODEL = "llama-3.3-70b-versatile"
+DEFAULT_MODEL = "openai/gpt-oss-120b"
 
 
 def fix_docstrings(original_code: str, functions_with_errors: list, model: str = DEFAULT_MODEL, style: str = "Google", filename: str = "module.py") -> tuple:
@@ -38,14 +38,30 @@ def fix_docstrings(original_code: str, functions_with_errors: list, model: str =
     """
     module_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
     error_lines = []
+    FIX_HINTS = {
+        "D401": "Use imperative mood. WRONG: 'Hashes the password', 'Reading rows'. RIGHT: 'Hash the password.', 'Read rows.'",
+        "D400": "First line must end with a period.",
+        "D415": "First line must end with period, question mark, or exclamation mark.",
+        "D403": "First word must be capitalized.",
+        "D404": "First word must not be 'This'.",
+        "D300": "Use triple double-quotes not triple single-quotes.",
+        "D205": "Add exactly one blank line between summary and description.",
+        "D212": "Summary must be on the first line after the opening triple-quote, no leading blank line.",
+        "DAR101": "This parameter exists in the function signature but is missing from the Args: section. Add it with its type and description.",
+        "DAR201": "The return value is missing from the Returns: section. Add it with its type and description.",
+        "DAR301": "The raised exception is missing from the Raises: section. Add it with its description.",
+    }
     func_names = []
     for func in functions_with_errors:
         func_names.append(func['name'])
         if func.get("docstring_errors"):
             for e in func["docstring_errors"]:
-                error_lines.append(f"  - {func['name']}(): [{e['code']}] {e['message']}")
+                hint = FIX_HINTS.get(e['code'], "")
+                suffix = f" → FIX: {hint}" if hint else ""
+                error_lines.append(f"  - {func['name']}(): [{e['code']}] {e['message']}{suffix}")
 
-    if not error_lines:
+    has_missing_docstrings = any(not func.get("has_docstring") for func in functions_with_errors)
+    if not error_lines and not has_missing_docstrings:
         return original_code, ""
 
     error_summary = "\n".join(error_lines)
@@ -58,9 +74,21 @@ You MUST output TWO separate markdown code blocks:
 2. A COMPLETE pytest suite for all functions: {func_list}.
 
 RULES FOR CODE FIXING:
-1. The summary MUST start on the VERY FIRST LINE immediately after the opening triple-quote.
-2. For functions with NO docstring, add a complete new one in {style} style.
-3. Include Args/Returns/Raises sections as required.
+1. Fix ONLY the violations listed in ERRORS. Do not touch unrelated code.
+2. The summary MUST start on the VERY FIRST LINE immediately after the opening triple-quote. No leading blank line.
+3. Every summary line MUST end with a period.
+4. Every summary MUST use IMPERATIVE mood (command form).
+    - WRONG: "Hashes the password", "This function reads a file", "Reading rows from CSV"
+    - RIGHT:  "Hash the password.",   "Read a file.",              "Read rows from a CSV file."
+    - RULE: Ask "Does this function X?" → write just "X." using the base verb form.
+5. For functions with NO docstring (D103), add a complete new one in {style} style.
+6. For DAR101: the parameter exists in the signature but is missing from Args: — add it.
+7. For DAR201: the return value is missing from Returns: — add it.
+8. For DAR301: the raised exception is missing from Raises: — add it.
+9. For D300: replace triple single-quotes with triple double-quotes.
+10. For D205: add exactly one blank line between the summary line and the description.
+11. For D212: summary on the first line after opening triple-quote, no blank line before it.
+12. Preserve all existing logic, imports, and non-docstring content exactly.
 
 RULES FOR TEST GENERATION:
 1. Your pytest suite MUST include: `import pytest` AND `from {module_name} import *`.

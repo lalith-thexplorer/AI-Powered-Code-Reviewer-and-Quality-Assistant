@@ -15,3 +15,5 @@ tests/__pycache__/
 workspace_context/
 workspace_tests/dynamic/
 workspace_tests/cached/
+workspace_tests/fixed/
+conftest.py

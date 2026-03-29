@@ -1,5 +1,9 @@
 streamlit==1.42.0
+pandas
+plotly
 pydocstyle==6.3.0
 darglint==1.8.1
 pytest==8.0.0
 pytest-json-report==1.1.2
+groq
+python-dotenv

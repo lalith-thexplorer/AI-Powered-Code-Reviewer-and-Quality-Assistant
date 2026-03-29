@@ -3354,7 +3354,6 @@ def render_pep_validation_dashboard():
     # Prepare data for charts
     error_counts = {}
     file_errors = {}
-    has_incomplete_docstrings = False
     has_any_parseable_file = False
     all_documented_and_perfect = True
 
@@ -3369,9 +3368,8 @@ def render_pep_validation_dashboard():
         _graph_total_f = len(_graph_funcs)
         f_errs = fdata['results'].get('total_docstring_errors', 0)
 
-        # A file is incomplete for validation if it has functions but not all are documented.
+        # Keep dashboard status conservative when some functions are still undocumented.
         if _graph_total_f > 0 and _graph_doc_f < _graph_total_f:
-            has_incomplete_docstrings = True
             all_documented_and_perfect = False
 
         if f_errs > 0:
@@ -3417,10 +3415,17 @@ def render_pep_validation_dashboard():
         </div>
         """, unsafe_allow_html=True)
 
+        has_incomplete_docstrings = any(
+            len(fdata['results'].get('functions', [])) > 0 and
+            sum(1 for _f in fdata['results'].get('functions', []) if _f.get('has_docstring')) < len(fdata['results'].get('functions', []))
+            for fdata in st.session_state.file_data.values()
+            if "error" not in fdata['results']
+        )
+
         if has_incomplete_docstrings:
-            st.warning("📝 Generate docstrings to validate. Some files are incomplete, so validation graphs are hidden until all functions are documented.")
-            st.markdown("<div style='color:#cfcfcf;font-size:0.92rem;'>Open the <b>DocStrings</b> tab, generate missing docstrings, then return to Validation.</div>", unsafe_allow_html=True)
-        elif not has_any_parseable_file:
+            st.info("📝 Some functions are still missing docstrings. Charts below show available validated/docstring data.")
+
+        if not has_any_parseable_file:
             st.info("No parseable files available for validation graphs.")
         else:
             chart_col1, chart_col2 = st.columns(2, gap="large")

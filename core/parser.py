@@ -121,11 +121,10 @@ def get_ast_errors(file_content: str, functions: list, style: str = "Google") ->
     except SyntaxError:
         return
 
-    func_nodes = {
-        node.name: node
-        for node in ast.walk(tree)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
+    func_nodes = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            func_nodes[node.lineno] = node
 
     # Style-specific markers
     if style == "reST":
@@ -143,7 +142,7 @@ def get_ast_errors(file_content: str, functions: list, style: str = "Google") ->
         raise_marker = "Raises:"
 
     for func in functions:
-        node = func_nodes.get(func["name"])
+        node = func_nodes.get(func["start_line"])
         if not node or not func["has_docstring"]:
             continue
 

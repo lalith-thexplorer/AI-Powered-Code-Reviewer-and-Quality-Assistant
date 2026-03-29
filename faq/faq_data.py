@@ -358,12 +358,12 @@ FAQ_DATA = json.loads(r'''{
                                                "a":  "Files are skipped if they have incomplete docstrings (not all functions are documented). Validation only works on fully documented files. Go to DocStrings tab to generate missing docstrings first."
                                            },
                                            {
-                                               "q":  "What do the error codes like \"D100\" and \"D401\" mean?",
-                                               "a":  "These are PEP 257 error codes indicating specific docstring violations. D100 = missing module docstring, D401 = first line should be imperative mood. Darglint provides detailed explanations for each code."
+                                               "q":  "What do the error codes like D100 and D401 mean?",
+                                               "a":  "These are PEP 257 docstring style codes that indicate violations. D200 = missing summary line, D401 = must use imperative mood, DAR101 = missing parameter documentation. Visit the Error Codes section below for details on each code the app can identify."
                                            },
                                            {
                                                "q":  "How long does it take to fix a file with AI?",
-                                               "a":  "Typically 5-20 seconds per file, depending on file size and AI model speed. Large files may take longer. You can monitor progress with the \"AI is fixing...\" spinner."
+                                               "a":  "Typically 5-20 seconds per file, depending on file size and AI model speed. Large files may take longer. You can monitor progress with the AI is fixing spinner."
                                            },
                                            {
                                                "q":  "Can I fix individual rules or do I have to fix the whole file?",
@@ -371,7 +371,7 @@ FAQ_DATA = json.loads(r'''{
                                            },
                                            {
                                                "q":  "Can I override the AI model for a single file?",
-                                               "a":  "Yes. Each file has its own model dropdown. Select a different model before clicking \"Fix {filename}\" and that model will be used just for that file."
+                                               "a":  "Yes. Each file has its own model dropdown. Select a different model before clicking Fix and that model will be used just for that file."
                                            },
                                            {
                                                "q":  "Can I undo a fix if the AI gets something wrong?",
@@ -392,6 +392,74 @@ FAQ_DATA = json.loads(r'''{
                                            {
                                                "q":  "Why did the AI fix fail for my function?",
                                                "a":  "Common causes: API quota exceeded, network interrupted, or the function code is too complex for the AI. Wait a few minutes and retry, or try a different AI model."
+                                           },
+                                           {
+                                               "q":  "What does error code D200 mean?",
+                                               "a":  "D200: Docstring has no summary line. Every docstring must start with a one-line summary. Fix: Add a concise summary sentence immediately after the opening triple-quotes, before any blank lines."
+                                           },
+                                           {
+                                               "q":  "What does error code D400 mean?",
+                                               "a":  "D400: First line must end with a period. The summary line must end with punctuation. Fix: Add a period at the end of the summary line. Example: Parse the input file. instead of Parse the input file"
+                                           },
+                                           {
+                                               "q":  "What does error code D401 mean?",
+                                               "a":  "D401: First line must use imperative mood. Write the summary as a command: Hash the password. not Hashes the password. Fix: Use the base verb form. Ask Does this function X? and write X."
+                                           },
+                                           {
+                                               "q":  "What does error code D403 mean?",
+                                               "a":  "D403: First word must be capitalized. The first character must be uppercase. Fix: Capitalize the first letter. Example: Hash the password. not hash the password."
+                                           },
+                                           {
+                                               "q":  "What does error code D404 mean?",
+                                               "a":  "D404: First word must not be This. Avoid starting with This function... or This method... Instead, use imperative: Calculate the sum. not This function calculates the sum."
+                                           },
+                                           {
+                                               "q":  "What does error code D415 mean?",
+                                               "a":  "D415: First line must end with period, question mark, or exclamation mark. Fix: Ensure the summary ends with . ? or !. Example: Parse the config file. or Is this valid?"
+                                           },
+                                           {
+                                               "q":  "What does error code D205 mean?",
+                                               "a":  "D205: Need exactly one blank line between summary and description. If your docstring has a multi-line description, ensure exactly one blank line separates the summary from the rest."
+                                           },
+                                           {
+                                               "q":  "What does error code D212 mean?",
+                                               "a":  "D212: Summary must be on the first line after the opening triple-quotes with no blank line before it. Fix: Remove any blank lines between the opening triple-quotes and the summary text."
+                                           },
+                                           {
+                                               "q":  "What does error code D300 mean?",
+                                               "a":  "D300: Use triple double-quotes, not triple single-quotes. Docstrings must use triple double-quotes (the standard). Fix: Replace all triple single-quotes with triple double-quotes at docstring start and end."
+                                           },
+                                           {
+                                               "q":  "What does error code DAR101 mean?",
+                                               "a":  "DAR101: A function parameter is missing from the Args section. The function has parameters but the docstring doesn\u0027t document them. Fix: Add or complete the Args section listing all parameters with type and description."
+                                           },
+                                           {
+                                               "q":  "What does error code DAR201 mean?",
+                                               "a":  "DAR201: Function returns a value but the Returns section is missing. The function has return statements but the docstring doesn\u0027t document the return. Fix: Add a Returns section with type and description of what is returned."
+                                           },
+                                           {
+                                               "q":  "What does error code DAR301 mean?",
+                                               "a":  "DAR301: Function raises exceptions but the Raises section is missing. The function has raise statements but doesn\u0027t document them. Fix: Add a Raises section listing exceptions that can be raised and when."
+                                           },
+                                           {
+                                               "q":  "What does error code D412 mean?",
+                                               "a":  "D412: No blank lines allowed between section header and content. Section headers like Args: must be followed immediately by content on the next line with no blank lines between."
+                                           },
+                                           {
+                                               "q":  "What does error code D413 mean?",
+                                               "a":  "D413: Missing blank line after last section. After the final section header and content, add a blank line before the closing triple-quotes to properly structure the docstring."
+                                           },
+                                           {
+                                               "q":  "What is the difference between D4xx and DAR codes?",
+                                               "a":  "D4xx codes (D400, D401, D403, etc.) are PEP 257 formatting rules enforced by pydocstyle. DAR codes (DAR101, DAR201, DAR301) are enforced by Darglint and check that parameters, returns, and exceptions are documented."
+                                           },
+                                           {
+                                               "q":  "Which error codes can the app automatically fix?",
+                                               "a":  "The AI can fix most codes: D200 (missing summary), D400/D401/D403/D404/D415 (summary format), D205/D212/D300 (structure), DAR101/DAR201/DAR301 (missing sections). Some rare codes may require manual fixes."
+                                           },
+                                           {
+                                               "q":  "Are some error codes ignored by the validation system?",
+                                               "a":  "Yes. To reduce noise, these cosmetic codes are ignored: D201 (blank line before), D202 (blank line after), D203 (class spacing), D213 (multi-line summary), D412/D413 (section spacing). The app focuses on critical issues instead."
                                            }
                                        ]
                           },
