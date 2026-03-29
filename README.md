@@ -28,7 +28,7 @@ Whether you're reviewing legacy code, enforcing team standards, or scaling docum
 
 ### 🤖 AI-Powered Fixes
 - **LLM docstring repair** — Groq-powered fixes for PEP 257 violations, missing sections, and incomplete descriptions
-- **Model selection** — Choose from Llama 3.3 70B, GPT-OSS 120B, Qwen3 32B, and Kimi K2 for different performance/speed tradeoffs
+- **Model selection** — Choose from GPT-OSS 120B (default), Llama 3.3 70B, Qwen3 32B, and Kimi K2 for different performance/speed tradeoffs
 - **Syntax extraction & fallback** — Intelligently extracts code blocks from AI responses; falls back to original docstring if generation fails
 - **Batch fixing workflow** — Fix all errors in a file at once or apply model improvements selectively
 
@@ -76,10 +76,10 @@ Whether you're reviewing legacy code, enforcing team standards, or scaling docum
 ## Project Structure
 
 ```
-AI_POWERED_CRQA/
+AI_Powered_CRQA/
 ├── app.py                              # Streamlit entry point & main UI orchestration
 ├── requirements.txt                    # Python dependencies
-├── .env                                # Environment variables (create from .env template)
+├── .env                                # Environment variables (create manually)
 ├── LICENSE                             # MIT License
 ├── README.md                           # This file
 ├── KNOWLEDGE_BASE.md                   # Complete feature & screen documentation
@@ -127,7 +127,12 @@ AI_POWERED_CRQA/
 │   ├── sample_a.py
 │   ├── sample_b.py
 │   ├── sample_c.py
-│   └── sample_d.py
+│   ├── sample_d.py
+│   ├── sample_e.py
+│   ├── sample_f.py
+│   ├── sample_g.py
+│   ├── sample_h.py
+│   └── sample_i.py
 │
 ├── workspace_context/                  # Runtime workspace directory
 │
@@ -151,7 +156,7 @@ AI_POWERED_CRQA/
 
 ```bash
 git clone https://github.com/lalith-thexplorer/AI-Powered-Code-Reviewer-and-Quality-Assistant.git
-cd AI_POWERED_CRQA
+cd AI_Powered_CRQA
 ```
 
 #### 2. Create and Activate a Virtual Environment
@@ -179,7 +184,11 @@ pip install -r requirements.txt
 Create a `.env` file in the project root:
 
 ```bash
-cp .env.example .env
+# Windows PowerShell
+New-Item .env -ItemType File
+
+# macOS/Linux
+touch .env
 ```
 
 Edit `.env` and add your Groq API key:
@@ -278,12 +287,12 @@ showErrorDetails = true
 
 ### Groq Model Selection
 
-Available models in app.py (`AVAILABLE_MODELS`):
+Available models in core/fix_code_with_ai.py (`AVAILABLE_MODELS`):
 
 | Model ID | Display Name | Use Case |
 |----------|--------------|----------|
-| `llama-3.3-70b-versatile` | ⚡ Llama 3.3 70B (Default) | Best overall quality & speed |
-| `openai/gpt-oss-120b` | 🧠 GPT-OSS 120B | Highest quality, slower |
+| `openai/gpt-oss-120b` | 🧠 GPT-OSS 120B (Default) | Highest quality, slower |
+| `llama-3.3-70b-versatile` | ⚡ Llama 3.3 70B | Best overall quality & speed |
 | `qwen/qwen3-32b` | 🌊 Qwen3 32B | Fast, good accuracy |
 | `moonshotai/kimi-k2-instruct` | 🌙 Kimi K2 | Specialized, Asia-optimized |
 
@@ -387,6 +396,7 @@ Built with:
 For questions, feedback, or support:
 - Check the **Help (?)** button in the app for contextual FAQs
 - Review [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md) for complete feature documentation
+- Review [PROJECT_REPORT.md](PROJECT_REPORT.md) for detailed project report/documentation
 - Open an issue on the [GitHub repository](https://github.com/lalith-thexplorer/AI-Powered-Code-Reviewer-and-Quality-Assistant)
 
 ---

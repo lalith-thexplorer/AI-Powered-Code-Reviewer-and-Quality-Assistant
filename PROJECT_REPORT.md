@@ -100,7 +100,7 @@ Four independent modules in the `core/` package handle specialized analysis:
 - **`generate_workspace_tests.py`** — Generates complete pytest suites for input functions. Uses the same LLM pipeline as the fixer but with a focus on test coverage: generates test classes with mocks, edge cases, and assertions. Results are cached in session state keyed by file content hash (`SHA-256`) to avoid regeneration for unchanged code.
 
 **Layer 4: External Services (Groq LLM API)**
-All generative AI capability is delegated to Groq's API. The application maintains a singleton Groq client initialized with an API key from the environment (`.env` file). Four LLM models are exposed: Llama 3.3 70B (default, balanced), GPT-OSS 120B (larger context, slower), Qwen3 32B (faster, smaller), and Kimi K2 (specialized). Each core module that uses the LLM constructs domain-specific prompts (e.g., "fix these docstring errors in PEP 257 format" or "generate pytest tests with mocks and edge cases") and sends them to the selected model. The LLM returns raw text; the calling module then extracts the code block and validates syntax before committing results.
+All generative AI capability is delegated to Groq's API. The application maintains a singleton Groq client initialized with an API key from the environment (`.env` file). Four LLM models are exposed: GPT-OSS 120B (default), Llama 3.3 70B, Qwen3 32B, and Kimi K2. Each core module that uses the LLM constructs domain-specific prompts (e.g., "fix these docstring errors in PEP 257 format" or "generate pytest tests with mocks and edge cases") and sends them to the selected model. The LLM returns raw text; the calling module then extracts the code block and validates syntax before committing results.
 
 **Layer 5: Visualization & Reporting (Output Generation)**
 Dashboard and reporting components generate visual outputs from the core analysis. Plotly Express creates interactive pie charts of docstring styles, bar charts of error distribution, and stacked bar charts of test results. Pandas DataFrames power sortable, filterable tables in the Advanced Filters, Search, and Tests tabs. Export functionality serializes workspace metrics and per-function data into JSON, Markdown, CSV, or plain text formats for downstream processing or archival. All visualizations remain responsive and interactive; no static images are generated.
@@ -132,7 +132,7 @@ d:\AI_Powered_CRQA\
 ├── requirements.txt                         # Python package dependencies (Streamlit 1.42.0, 
 │                                            # pydocstyle, darglint, pytest, plotly, pandas, etc.)
 │
-├── .env (template)                         # Environment variables template. Users must create .env 
+├── .env                                    # Environment variables file (.gitignored)
 │                                            # with GROQ_API_KEY for LLM integration.
 │
 ├── LICENSE                                  # MIT License
@@ -141,7 +141,7 @@ d:\AI_Powered_CRQA\
 │
 ├── KNOWLEDGE_BASE.md                       # Complete feature and screen reference documentation
 │
-├── PROJECT_DOCUMENTATION.md                 # This file — professional project report
+├── PROJECT_REPORT.md                        # This file — professional project report
 │
 ├── .streamlit/
 │   └── config.toml                         # Streamlit configuration (theme, logger settings, etc.)
@@ -197,7 +197,12 @@ d:\AI_Powered_CRQA\
 │   ├── sample_a.py
 │   ├── sample_b.py
 │   ├── sample_c.py
-│   └── sample_d.py
+│   ├── sample_d.py
+│   ├── sample_e.py
+│   ├── sample_f.py
+│   ├── sample_g.py
+│   ├── sample_h.py
+│   └── sample_i.py
 │
 ├── Test/                                    # Legacy test files (reference / manual testing)
 │   ├── test_coverage_reporter.py
@@ -212,12 +217,12 @@ d:\AI_Powered_CRQA\
 │   ├── test_darglint.py
 │   └── test_pydoc.py
 │
-├── workspace_context/                       # (Placeholder for future workspace context features)
+├── workspace_context/                       # Runtime workspace source mirror used for test execution
 │
-├── workspace_tests/                         # Cache directory for generated test suites
-│   ├── cached/                              # Pre-generated test suites for common libraries
-│   └── dynamic/                             # AI-generated tests stored per file during runtime
-│       └── test_sample_a_google.py          # Example dynamically generated test file
+├── workspace_tests/                         # Runtime test directories used by dashboard test execution
+│   ├── fixed/                               # Copied/import-normalized health test suite
+│   ├── cached/                              # Cached AI-generated tests
+│   └── dynamic/                             # Fresh AI-generated tests for current workspace
 │
 └── __pycache__/                             # Python bytecode cache (auto-generated)
 ```
@@ -249,7 +254,7 @@ st.session_state.fixed_codes = {}                  # dict[filename → fixed_cod
 st.session_state.active_section = "🏠 Home"        # active sidebar section
 st.session_state.open_tabs = ['📊 Dashboard']      # list of open file/dashboard tabs
 st.session_state._pending_tab_switch = None        # internal: trigger tab switch on next render
-st.session_state.fix_model = "llama-3.3-70b-versatile"  # selected AI model for fixing
+st.session_state.fix_model = "openai/gpt-oss-120b"      # selected AI model for fixing
 st.session_state.uploader_key = 0                  # forces uploader reset after upload
 st.session_state.dash_active_tab = "Advanced Filters"   # active dashboard sub-tab
 st.session_state.faq_open = False                  # floating FAQ popup state
