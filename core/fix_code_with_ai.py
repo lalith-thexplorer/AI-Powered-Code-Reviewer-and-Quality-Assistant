@@ -14,29 +14,31 @@ def get_client():
     return _client
 
 AVAILABLE_MODELS = {
-    "llama-3.3-70b-versatile":                    "⚡ Llama 3.3 70B",
-    "openai/gpt-oss-120b":                         "🧠 GPT-OSS 120B (Default)",
-    "qwen/qwen3-32b":                              "🌊 Qwen3 32B",
-    "moonshotai/kimi-k2-instruct":                 "🌙 Kimi K2",
+    "meta-llama/llama-4-scout-17b-16e-instruct":  "🚀 Llama 4 Scout 17B (Default, 30K TPM)",
+    "groq/compound-mini":                          "⚡ Compound Mini (70K TPM, 250 RPD)",
+    "llama-3.3-70b-versatile":                     "🧠 Llama 3.3 70B (12K TPM)",
+    "moonshotai/kimi-k2-instruct":                "🌙 Kimi K2 (10K TPM)",
+    "openai/gpt-oss-120b":                        "🧩 GPT-OSS 120B (8K TPM)",
+    "openai/gpt-oss-20b":                         "🧩 GPT-OSS 20B (8K TPM)",
 }
 
-DEFAULT_MODEL = "openai/gpt-oss-120b"
+DEFAULT_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+MAX_OUTPUT_TOKENS = int(os.getenv("GROQ_MAX_OUTPUT_TOKENS", "2048"))
 
 
 def fix_docstrings(original_code: str, functions_with_errors: list, model: str = DEFAULT_MODEL, style: str = "Google", filename: str = "module.py") -> tuple:
-    """Call LLM to fix docstring errors and generate cached tests.
+    """Call LLM to fix docstring errors.
 
     Args:
         original_code: Full source of the Python file.
         functions_with_errors: List of function dicts from parser results.
         model: Groq model ID to use for the fix.
         style: The target docstring style format (e.g., Google, NumPy, reST).
-        filename: The source filename, used to derive the import name for tests.
+        filename: The source filename.
 
     Returns:
         tuple: (fixed_python_code, cached_pytest_suite)
     """
-    module_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
     error_lines = []
     FIX_HINTS = {
         "D401": "Use imperative mood. WRONG: 'Hashes the password', 'Reading rows'. RIGHT: 'Hash the password.', 'Read rows.'",
@@ -50,6 +52,7 @@ def fix_docstrings(original_code: str, functions_with_errors: list, model: str =
         "DAR101": "This parameter exists in the function signature but is missing from the Args: section. Add it with its type and description.",
         "DAR201": "The return value is missing from the Returns: section. Add it with its type and description.",
         "DAR301": "The raised exception is missing from the Raises: section. Add it with its description.",
+        "DAR401": "The function raises exceptions but the Raises: section is missing or incomplete. Add raised exception(s) with descriptions.",
     }
     func_names = []
     for func in functions_with_errors:
@@ -67,11 +70,9 @@ def fix_docstrings(original_code: str, functions_with_errors: list, model: str =
     error_summary = "\n".join(error_lines)
     func_list = ", ".join(func_names)
 
-    SYSTEM_PROMPT = f'''You are a Python code editor specializing in PEP 257 {style}-style docstrings and pytest suites.
+    SYSTEM_PROMPT = f'''You are a Python code editor specializing in PEP 257 {style}-style docstrings.
 You will receive Python source code and a list of docstring errors to fix.
-You MUST output TWO separate markdown code blocks:
-1. The COMPLETE fixed Python file.
-2. A COMPLETE pytest suite for all functions: {func_list}.
+You MUST output ONE markdown code block containing the COMPLETE fixed Python file.
 
 RULES FOR CODE FIXING:
 1. Fix ONLY the violations listed in ERRORS. Do not touch unrelated code.
@@ -84,33 +85,19 @@ RULES FOR CODE FIXING:
 5. For functions with NO docstring (D103), add a complete new one in {style} style.
 6. For DAR101: the parameter exists in the signature but is missing from Args: — add it.
 7. For DAR201: the return value is missing from Returns: — add it.
-8. For DAR301: the raised exception is missing from Raises: — add it.
+8. For DAR301/DAR401: if exceptions are raised, add missing entries in Raises: with clear descriptions.
 9. For D300: replace triple single-quotes with triple double-quotes.
 10. For D205: add exactly one blank line between the summary line and the description.
 11. For D212: summary on the first line after opening triple-quote, no blank line before it.
 12. Preserve all existing logic, imports, and non-docstring content exactly.
 
-RULES FOR TEST GENERATION:
-1. Your pytest suite MUST include: `import pytest` AND `from {module_name} import *`.
-2. Use `pytest.approx()` for all float comparisons.
-3. Test only behavior that is directly supported by the source code. Do NOT invent validation rules, crash behavior, or business rules.
-4. Include edge cases only when the implementation clearly supports them or they are obvious from the source code.
-5. Never assert `x == float('nan')` or `pytest.approx(float('nan'))`. If NaN behavior is tested, use `math.isnan(x)`.
-6. For strings or formatted text, derive expected values from the implementation pattern instead of guessing literals.
-7. Do not use exotic inputs like NaN, infinity, -0.0, huge numbers, empty strings, or None unless the code clearly shows those cases are meaningful.
-8. Every assertion should have a meaningful error message.
-9. If the code handles inputs gracefully (like string formatting None), DO NOT expect TypeErrors.
-
 OUTPUT FORMAT:
 ```python
 # Fixed Code here...
 ```
-```python
-# Pytest Suite here...
-```
 NO explanations or commentary.'''
 
-    prompt = f"""Fix errors and generate tests for the code below.
+    prompt = f"""Fix docstring errors in the code below.
 
 ERRORS:
 {error_summary}
@@ -128,7 +115,7 @@ ORIGINAL CODE:
             {"role": "user", "content": prompt}
         ],
         temperature=0.05,
-        max_tokens=8192,
+        max_tokens=MAX_OUTPUT_TOKENS,
     )
 
     content = response.choices[0].message.content.strip()

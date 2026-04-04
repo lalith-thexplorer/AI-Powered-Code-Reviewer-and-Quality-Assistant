@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import json
 from core import parser
 import zipfile
 import io
@@ -10,10 +11,14 @@ import plotly.express as px
 from core import convert_docstring_style
 from core import fix_code_with_ai
 from core import generate_workspace_tests
-from core.fix_code_with_ai import AVAILABLE_MODELS, DEFAULT_MODEL
 import importlib
 from faq.faq_data import FAQ_DATA
 from faq.faq_component import get_current_screen_id, render_faq_button, render_faq_popup
+
+# Keep model catalog synced with core.fix_code_with_ai across Streamlit reruns.
+importlib.reload(fix_code_with_ai)
+AVAILABLE_MODELS = fix_code_with_ai.AVAILABLE_MODELS
+DEFAULT_MODEL = fix_code_with_ai.DEFAULT_MODEL
 
 def compress_name(name, max_len=18):
     """Universal utility to shorten long filenames/paths with ellipsis in the middle."""
@@ -769,6 +774,503 @@ if 'dash_filter' not in st.session_state:
     st.session_state.dash_filter = "All"
 if 'help_selected_card' not in st.session_state:
     st.session_state.help_selected_card = None
+if 'activity_notices' not in st.session_state:
+    st.session_state.activity_notices = []
+if 'activity_notices_generation' not in st.session_state:
+    st.session_state.activity_notices_generation = 0
+if 'validation_generate_tests_after_fix' not in st.session_state:
+    st.session_state.validation_generate_tests_after_fix = False
+if '_soft_warnings' not in st.session_state:
+    st.session_state._soft_warnings = []
+
+
+def _normalize_fix_model_state() -> None:
+    """Ensure the global fix model points to an available model."""
+    model_keys = list(AVAILABLE_MODELS.keys())
+    if not model_keys:
+        return
+    if st.session_state.get('fix_model') not in AVAILABLE_MODELS:
+        st.session_state.fix_model = model_keys[0]
+
+
+def _set_selected_model(selected: str, sync_dropdowns: bool = True) -> None:
+    """Set the global active model."""
+    if selected not in AVAILABLE_MODELS:
+        return
+
+    st.session_state.fix_model = selected
+
+    # Keep compatibility with older call-sites; no longer force-sync per-file selectors.
+    if sync_dropdowns:
+        st.session_state._pending_model_sync = selected
+
+
+def _apply_pending_model_sync() -> None:
+    """Apply deferred global model sync before widgets are instantiated."""
+    selected = st.session_state.pop('_pending_model_sync', None)
+    if selected not in AVAILABLE_MODELS:
+        return
+
+    st.session_state.fix_model = selected
+    st.session_state.fix_model_selector = selected
+
+
+def _model_index(model_name: str) -> int:
+    """Return a safe model index for selectboxes."""
+    model_keys = list(AVAILABLE_MODELS.keys())
+    if not model_keys:
+        return 0
+    try:
+        return model_keys.index(model_name)
+    except ValueError:
+        return 0
+
+
+def _on_global_fix_model_change() -> None:
+    """Update only the global model when the sidebar selector changes."""
+    selected = st.session_state.get('fix_model_selector')
+    if selected not in AVAILABLE_MODELS:
+        return
+    _set_selected_model(selected, sync_dropdowns=True)
+
+
+def _notify_fallback_if_needed(action_label: str, preferred_model: str, used_model: str) -> None:
+    """Inform user when a fallback model was used due to rate/token limits."""
+    if used_model == preferred_model:
+        return
+    used_label = AVAILABLE_MODELS.get(used_model, used_model)
+    msg = f"{action_label} used fallback model: {used_label} (rate/token limit on selected model)."
+    _toast_with_activity(msg, kind="warning", icon="⚠️")
+
+
+def _notify_action_success(action_label: str, file_name: str, model_id: str) -> None:
+    """Show concise success toast with the model used."""
+    model_label = AVAILABLE_MODELS.get(model_id, model_id)
+    msg = f"{action_label} completed for {compress_name(file_name, 22)} using {model_label}."
+    _toast_with_activity(msg, kind="success", icon="✅")
+
+
+def _notify_action_error(action_label: str, file_name: str, err: Exception) -> None:
+    """Show concise error toast near action context."""
+    msg = str(err)
+    if len(msg) > 170:
+        msg = msg[:167] + "..."
+    final_msg = f"{action_label} failed for {compress_name(file_name, 22)}: {msg}"
+    _toast_with_activity(final_msg, kind="error", icon="❌")
+
+
+def _push_activity_notice(message: str, kind: str = "info") -> None:
+    """Store a persistent activity notification that survives reruns."""
+    icon_map = {
+        "success": "✅",
+        "warning": "⚠️",
+        "error": "❌",
+        "info": "ℹ️",
+    }
+    notice = {
+        "kind": kind,
+        "icon": icon_map.get(kind, "ℹ️"),
+        "message": message,
+        "generation": st.session_state.get("activity_notices_generation", 0),
+    }
+    st.session_state.activity_notices.append(notice)
+    # Keep the panel concise.
+    st.session_state.activity_notices = st.session_state.activity_notices[-20:]
+
+
+def _clear_activity_notices() -> None:
+    """Clear notices and invalidate any stale ones from older reruns."""
+    st.session_state.activity_notices_generation = st.session_state.get("activity_notices_generation", 0) + 1
+    st.session_state.activity_notices = []
+
+
+def _toast_with_activity(message: str, kind: str = "info", icon: str = "") -> None:
+    """Show toast and persist the same message in activity log."""
+    _push_activity_notice(message, kind=kind)
+    toast_icon = icon or {"success": "✅", "warning": "⚠️", "error": "❌", "info": "ℹ️"}.get(kind, "ℹ️")
+    st.toast(message, icon=toast_icon)
+
+
+def _render_activity_notices_panel() -> None:
+    """Render persistent notices so users can read messages after reruns."""
+    current_generation = st.session_state.get("activity_notices_generation", 0)
+    notices = [item for item in st.session_state.get("activity_notices", []) if item.get("generation", current_generation) == current_generation]
+    with st.expander(f"Recent AI Activity ({len(notices)})", expanded=False):
+        if not notices:
+            st.caption("No recent AI activity yet.")
+            return
+        for item in reversed(notices[-8:]):
+            st.markdown(f"{item['icon']} {item['message']}")
+        if st.button("Clear Activity", key="clear_activity_notices", use_container_width=True):
+            _clear_activity_notices()
+            st.rerun()
+
+
+def render_notifications_fab() -> None:
+    """Render floating notifications button with badge and popup list."""
+    _flush_soft_warnings_to_activity()
+    current_generation = st.session_state.get("activity_notices_generation", 0)
+    notices = [item for item in st.session_state.get("activity_notices", []) if item.get("generation", current_generation) == current_generation][-20:]
+    payload = json.dumps(notices)
+
+    st.markdown(
+        """
+        <style>
+            .st-key-notifications_clear_bridge {
+                display: none !important;
+                height: 0 !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button("notifications_clear_bridge", key="notifications_clear_bridge"):
+        _clear_activity_notices()
+        st.rerun()
+
+    components.html(
+        f"""
+        <script>
+        (function() {{
+            const doc = window.parent.document;
+            const hostWin = window.parent;
+            const btnId = "notifications-floating-button";
+            const panelId = "notifications-floating-panel";
+            const styleId = "notifications-floating-style";
+            const notices = {payload};
+
+            if (!doc.getElementById(styleId)) {{
+                const style = doc.createElement("style");
+                style.id = styleId;
+                style.textContent = `
+                    #${{btnId}} {{
+                        position: fixed;
+                        bottom: 84px;
+                        right: 28px;
+                        width: 48px;
+                        height: 48px;
+                        border-radius: 999px;
+                        border: 1.5px solid #ffbf00;
+                        background: rgba(20, 20, 30, 0.88);
+                        box-shadow: 0 0 12px rgba(255, 191, 0, 0.4);
+                        color: #ffbf00;
+                        font: inherit;
+                        font-size: 20px;
+                        font-weight: 700;
+                        cursor: pointer;
+                        backdrop-filter: blur(10px);
+                        -webkit-backdrop-filter: blur(10px);
+                        z-index: 999998;
+                    }}
+                    #${{btnId}}:hover {{
+                        box-shadow: 0 0 18px rgba(255, 191, 0, 0.65);
+                    }}
+                    #${{btnId}} .notif-badge {{
+                        position: absolute;
+                        top: -6px;
+                        right: -6px;
+                        min-width: 18px;
+                        height: 18px;
+                        border-radius: 10px;
+                        background: #ff6b6b;
+                        color: #ffffff;
+                        border: 1px solid rgba(255,255,255,0.5);
+                        font-size: 10px;
+                        font-weight: 700;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        padding: 0 4px;
+                        line-height: 1;
+                    }}
+                    #${{panelId}} {{
+                        position: fixed;
+                        bottom: 140px;
+                        right: 28px;
+                        width: 360px;
+                        max-height: 320px;
+                        overflow-y: auto;
+                        background: rgba(15, 16, 26, 0.92);
+                        border: 1px solid rgba(255, 191, 0, 0.38);
+                        border-radius: 12px;
+                        box-shadow: 0 14px 38px rgba(0, 0, 0, 0.5);
+                        backdrop-filter: blur(14px) saturate(160%);
+                        -webkit-backdrop-filter: blur(14px) saturate(160%);
+                        z-index: 999998;
+                        color: #e0e0e0;
+                        display: none;
+                    }}
+                    #${{panelId}} .notif-header {{
+                        padding: 10px 12px;
+                        border-bottom: 1px solid rgba(255,255,255,0.1);
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        gap: 8px;
+                    }}
+                    #${{panelId}} .notif-title {{
+                        font-size: 0.9rem;
+                        font-weight: 700;
+                        color: #ffbf00;
+                    }}
+                    #${{panelId}} .notif-actions {{
+                        display: flex;
+                        align-items: center;
+                        gap: 6px;
+                    }}
+                    #${{panelId}} .notif-action-btn {{
+                        border: 1px solid rgba(255,255,255,0.22);
+                        background: rgba(255,255,255,0.04);
+                        color: #e0e0e0;
+                        border-radius: 8px;
+                        font-size: 0.72rem;
+                        font-weight: 600;
+                        padding: 4px 8px;
+                        cursor: pointer;
+                    }}
+                    #${{panelId}} .notif-action-btn:hover {{
+                        border-color: rgba(255,191,0,0.55);
+                        color: #ffbf00;
+                    }}
+                    #${{panelId}} .notif-empty {{
+                        padding: 12px;
+                        color: #b6c4cb;
+                        font-size: 0.85rem;
+                    }}
+                    #${{panelId}} .notif-item {{
+                        padding: 10px 12px;
+                        border-bottom: 1px solid rgba(255,255,255,0.06);
+                        font-size: 0.82rem;
+                        line-height: 1.35;
+                    }}
+                    #${{panelId}} .notif-item:last-child {{
+                        border-bottom: none;
+                    }}
+                `;
+                doc.head.appendChild(style);
+            }}
+
+            let btn = doc.getElementById(btnId);
+            if (!btn) {{
+                btn = doc.createElement("button");
+                btn.id = btnId;
+                btn.type = "button";
+                btn.setAttribute("aria-label", "Open notifications");
+                btn.textContent = "🔔";
+                doc.body.appendChild(btn);
+            }}
+
+            let panel = doc.getElementById(panelId);
+            if (!panel) {{
+                panel = doc.createElement("div");
+                panel.id = panelId;
+                doc.body.appendChild(panel);
+            }}
+
+            function getBridgeButton() {{
+                return doc.querySelector(".st-key-notifications_clear_bridge button");
+            }}
+
+            function triggerClearBridge() {{
+                const bridgeButton = getBridgeButton();
+                if (!bridgeButton) return;
+                bridgeButton.click();
+            }}
+
+            panel.innerHTML = "";
+            const header = doc.createElement("div");
+            header.className = "notif-header";
+            const title = doc.createElement("div");
+            title.className = "notif-title";
+            title.textContent = "Recent Notifications";
+
+            const actions = doc.createElement("div");
+            actions.className = "notif-actions";
+
+            const clearBtn = doc.createElement("button");
+            clearBtn.type = "button";
+            clearBtn.className = "notif-action-btn";
+            clearBtn.textContent = "Clear All";
+            clearBtn.onclick = (ev) => {{
+                ev.stopPropagation();
+                panel.innerHTML = "";
+                const header = doc.createElement("div");
+                header.className = "notif-header";
+                const title = doc.createElement("div");
+                title.className = "notif-title";
+                title.textContent = "Recent Notifications";
+                const actions = doc.createElement("div");
+                actions.className = "notif-actions";
+                const closeOnlyBtn = doc.createElement("button");
+                closeOnlyBtn.type = "button";
+                closeOnlyBtn.className = "notif-action-btn";
+                closeOnlyBtn.textContent = "Close";
+                closeOnlyBtn.onclick = (e) => {{ e.stopPropagation(); setOpen(false); }};
+                actions.appendChild(closeOnlyBtn);
+                header.appendChild(title);
+                header.appendChild(actions);
+                panel.appendChild(header);
+                const empty = doc.createElement("div");
+                empty.className = "notif-empty";
+                empty.textContent = "No recent notifications.";
+                panel.appendChild(empty);
+                const badge = btn.querySelector('.notif-badge');
+                if (badge) badge.remove();
+                triggerClearBridge();
+            }};
+
+            const closeBtn = doc.createElement("button");
+            closeBtn.type = "button";
+            closeBtn.className = "notif-action-btn";
+            closeBtn.textContent = "Close";
+            closeBtn.onclick = (ev) => {{
+                ev.stopPropagation();
+                setOpen(false);
+            }};
+
+            actions.appendChild(clearBtn);
+            actions.appendChild(closeBtn);
+            header.appendChild(title);
+            header.appendChild(actions);
+            panel.appendChild(header);
+
+            if (!Array.isArray(notices) || notices.length === 0) {{
+                const empty = doc.createElement("div");
+                empty.className = "notif-empty";
+                empty.textContent = "No recent notifications.";
+                panel.appendChild(empty);
+            }} else {{
+                [...notices].reverse().slice(0, 12).forEach(item => {{
+                    const row = doc.createElement("div");
+                    row.className = "notif-item";
+                    const icon = item && item.icon ? item.icon + " " : "";
+                    row.textContent = icon + (item && item.message ? item.message : "Notification");
+                    panel.appendChild(row);
+                }});
+            }}
+
+            const existingBadge = btn.querySelector('.notif-badge');
+            if (existingBadge) existingBadge.remove();
+            if (Array.isArray(notices) && notices.length > 0) {{
+                const badge = doc.createElement('span');
+                badge.className = 'notif-badge';
+                badge.textContent = notices.length > 99 ? '99+' : String(notices.length);
+                btn.appendChild(badge);
+            }}
+
+            if (typeof hostWin.__notifOpen !== "boolean") hostWin.__notifOpen = false;
+
+            const setOpen = (nextOpen) => {{
+                hostWin.__notifOpen = !!nextOpen;
+                panel.style.display = hostWin.__notifOpen ? 'block' : 'none';
+            }};
+
+            btn.onclick = (ev) => {{
+                ev.stopPropagation();
+                setOpen(!hostWin.__notifOpen);
+            }};
+
+            panel.onclick = (ev) => ev.stopPropagation();
+            if (!hostWin.__notifDocClickBound) {{
+                doc.addEventListener('click', () => setOpen(false));
+                hostWin.__notifDocClickBound = true;
+            }}
+
+            setOpen(hostWin.__notifOpen);
+        }})();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    """Detect provider rate-limit errors from exception text."""
+    msg = str(exc).lower()
+    return "429" in msg or "rate limit" in msg or "rate_limit_exceeded" in msg
+
+
+def _call_with_model_fallback(call_fn, preferred_model, **kwargs):
+    """Try the selected model first, then fallback models for rate-limit failures."""
+    model_candidates = [preferred_model] + [m for m in AVAILABLE_MODELS.keys() if m != preferred_model]
+    last_error = None
+
+    for model_id in model_candidates:
+        try:
+            result = call_fn(model=model_id, **kwargs)
+            return result, model_id
+        except Exception as exc:
+            last_error = exc
+            if _is_rate_limit_error(exc):
+                continue
+            raise
+
+    if last_error is not None:
+        raise last_error
+
+    result = call_fn(model=preferred_model, **kwargs)
+    return result, preferred_model
+
+
+def _fix_docstrings_with_fallback(original_code, functions_with_errors, style, filename, preferred_model):
+    """Call fix_docstrings with automatic model fallback on rate limits."""
+    result, used_model = _call_with_model_fallback(
+        fix_code_with_ai.fix_docstrings,
+        preferred_model,
+        original_code=original_code,
+        functions_with_errors=functions_with_errors,
+        style=style,
+        filename=filename,
+    )
+    fixed, cached_tests = result
+    return fixed, cached_tests, used_model
+
+
+def _convert_style_with_fallback(original_code, target_style, scope, func_name, filename, preferred_model):
+    """Call convert_style with automatic model fallback on rate limits."""
+    result, used_model = _call_with_model_fallback(
+        convert_docstring_style.convert_style,
+        preferred_model,
+        original_code=original_code,
+        target_style=target_style,
+        scope=scope,
+        func_name=func_name,
+        filename=filename,
+    )
+    converted, tests = result
+    return converted, tests, used_model
+
+
+def _generate_docstrings_with_fallback(original_code, target_style, filename, preferred_model):
+    """Call generate_docstrings with automatic model fallback on rate limits."""
+    result, used_model = _call_with_model_fallback(
+        convert_docstring_style.generate_docstrings,
+        preferred_model,
+        original_code=original_code,
+        target_style=target_style,
+        filename=filename,
+    )
+    generated, tests = result
+    return generated, tests, used_model
+
+
+def _generate_tests_with_fallback(filename, original_code, functions, preferred_model):
+    """Call generate_pytest_for_file with automatic model fallback on rate limits."""
+    result, used_model = _call_with_model_fallback(
+        generate_workspace_tests.generate_pytest_for_file,
+        preferred_model,
+        filename=filename,
+        original_code=original_code,
+        functions=functions,
+    )
+    return result, used_model
+
+
+_normalize_fix_model_state()
+_apply_pending_model_sync()
 
 
 def render_faq_overlay():
@@ -790,14 +1292,37 @@ def render_faq_overlay():
         screen_entry.get("faqs", []),
     )
 
+
+def _record_soft_warning(context: str, err: Exception = None) -> None:
+    """Capture non-fatal background errors instead of silently swallowing them."""
+    detail = f"{context}: {err}" if err else context
+    existing = st.session_state.get("_soft_warnings", [])
+    if existing and existing[-1] == detail:
+        return
+    existing.append(detail)
+    st.session_state._soft_warnings = existing[-30:]
+
+
+def _flush_soft_warnings_to_activity() -> None:
+    """Forward captured non-fatal warnings into persistent activity notices."""
+    pending = st.session_state.get("_soft_warnings", [])
+    if not pending:
+        return
+    for msg in pending:
+        _push_activity_notice(f"Background warning: {msg}", kind="warning")
+    st.session_state._soft_warnings = []
+
 # ── Session Lifecycle Cleanup Hook ──
 # Wipes temporary workspace files on app startup/refresh
 if '_session_init' not in st.session_state:
     import shutil
-    for d in ["workspace_context", "workspace_tests/dynamic", "workspace_tests/cached"]:
+    cleanup_paths = ["workspace_context", "workspace_tests/dynamic", "workspace_tests/cached"]
+    for d in cleanup_paths:
         if os.path.exists(d):
-            try: shutil.rmtree(d)
-            except: pass
+            try:
+                shutil.rmtree(d)
+            except Exception as e:
+                _record_soft_warning(f"Startup cleanup failed for {d}", e)
     os.makedirs("workspace_context", exist_ok=True)
     os.makedirs("workspace_tests/dynamic", exist_ok=True)
     os.makedirs("workspace_tests/cached", exist_ok=True)
@@ -848,8 +1373,10 @@ def process_uploaded_files(uploaded_files_list):
     for fname in st.session_state.file_data.keys():
         d_path = os.path.join(dynamic_dir, f"test_{fname}")
         if os.path.exists(d_path):
-            try: os.remove(d_path)
-            except: pass
+            try:
+                os.remove(d_path)
+            except Exception as e:
+                _record_soft_warning(f"Failed deleting stale dynamic test {d_path}", e)
 
     # --- PROACTIVE GENERATION ---
     # If a file is 100% documented upon upload, try to generate tests immediately in the background
@@ -867,7 +1394,7 @@ def process_uploaded_files(uploaded_files_list):
                 if not os.path.exists(dynamic_path) and not os.path.exists(cache_path):
                     to_proactively_generate.append((fname, fdata['content'], doc_funcs))
     
-    if to_proactively_generate:
+    if to_proactively_generate and st.session_state.get("enable_proactive_test_generation", False):
         from concurrent.futures import ThreadPoolExecutor
         model_id = st.session_state.fix_model
         dynamic_dir = "workspace_tests/dynamic"
@@ -878,14 +1405,20 @@ def process_uploaded_files(uploaded_files_list):
             try:
                 # Force reload generator to pick up recent code changes
                 importlib.reload(generate_workspace_tests)
-                t_code = generate_workspace_tests.generate_pytest_for_file(fn, code, funcs, model=mid)
+                t_code, _ = _generate_tests_with_fallback(
+                    filename=fn,
+                    original_code=code,
+                    functions=funcs,
+                    preferred_model=mid,
+                )
                 tf_path = os.path.join(dynamic_dir, f"test_{fn}")
                 os.makedirs(os.path.dirname(tf_path), exist_ok=True)
                 with open(tf_path, "w", encoding="utf-8") as tf:
                     tf.write(t_code)
-            except: pass
+            except Exception as e:
+                _record_soft_warning(f"Proactive test generation failed for {fn}", e)
 
-        with ThreadPoolExecutor(max_workers=len(to_proactively_generate)) as executor:
+        with ThreadPoolExecutor(max_workers=min(2, len(to_proactively_generate))) as executor:
             executor.map(_proactive_task, [(f, c, fs, model_id) for f, c, fs in to_proactively_generate])
 
     return has_files
@@ -1058,7 +1591,7 @@ def render_single_file(fname, fl_data):
                 }}
             }})();
             </script>""", height=0, width=0)
-            st.toast("📋 Copied to clipboard!")
+            _toast_with_activity("Copied to clipboard!", kind="success", icon="📋")
 
         st.markdown("<div class='dash-content-separator'></div>", unsafe_allow_html=True)
 
@@ -1244,11 +1777,14 @@ def render_docstring_converter():
             target_style = st.selectbox("Convert to", options=available_targets,
                                         key=f"conv_target_{selected_file}", label_visibility="visible")
         with ctrl_col3:
+            conv_model_key = f"conv_model_{selected_file}"
+            if st.session_state.get(conv_model_key) not in AVAILABLE_MODELS:
+                st.session_state[conv_model_key] = st.session_state.fix_model
             conv_model = st.selectbox(
                 "Model", options=list(AVAILABLE_MODELS.keys()),
-                index=list(AVAILABLE_MODELS.keys()).index(st.session_state.fix_model),
+                index=_model_index(st.session_state[conv_model_key]),
                 format_func=lambda x: AVAILABLE_MODELS[x],
-                key=f"conv_model_{selected_file}", label_visibility="visible"
+                key=conv_model_key, label_visibility="visible"
             )
         with ctrl_col4:
             st.write("")
@@ -1256,20 +1792,25 @@ def render_docstring_converter():
             if st.button("⚡ Convert", key=f"conv_btn_{selected_file}", type="primary", use_container_width=True):
                 with st.spinner(f"🔄 Converting to {target_style} style…"):
                     try:
-                        result, tests = convert_docstring_style.convert_style(
-                            live_content, target_style,
+                        result, tests, used_model = _convert_style_with_fallback(
+                            original_code=live_content,
+                            target_style=target_style,
                             scope="whole_file" if is_whole else "function",
-                            func_name=func_name, model=conv_model,
-                            filename=selected_file
+                            func_name=func_name,
+                            filename=selected_file,
+                            preferred_model=conv_model,
                         )
+                        _notify_fallback_if_needed("Conversion", conv_model, used_model)
+                        _notify_action_success("Conversion", selected_file, used_model)
                         st.session_state._converter_split[split_key] = {
                             "result": result, "original": live_content, "tests": tests,
                             "scope": "whole_file" if is_whole else "function",
                             "func_name": func_name, "target_style": target_style,
+                            "used_model": used_model,
                         }
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Conversion failed: {e}")
+                        _notify_action_error("Conversion", selected_file, e)
 
         # Code preview processing
         if is_whole:
@@ -1298,11 +1839,14 @@ def render_docstring_converter():
             gen_style = st.selectbox("Generate in style", options=ALL_STYLES,
                                      key=f"gen_style_{selected_file}", label_visibility="visible")
         with gen_col2:
+            gen_model_key = f"gen_model_{selected_file}"
+            if st.session_state.get(gen_model_key) not in AVAILABLE_MODELS:
+                st.session_state[gen_model_key] = st.session_state.fix_model
             gen_model = st.selectbox(
                 "Model", options=list(AVAILABLE_MODELS.keys()),
-                index=list(AVAILABLE_MODELS.keys()).index(st.session_state.fix_model),
+                index=_model_index(st.session_state[gen_model_key]),
                 format_func=lambda x: AVAILABLE_MODELS[x],
-                key=f"gen_model_{selected_file}", label_visibility="visible"
+                key=gen_model_key, label_visibility="visible"
             )
         with gen_col3:
             st.write("")
@@ -1310,18 +1854,23 @@ def render_docstring_converter():
             if st.button("✨ Generate", key=f"gen_btn_{selected_file}", type="primary", use_container_width=True):
                 with st.spinner(f"✨ Generating {gen_style} docstrings…"):
                     try:
-                        result, tests = convert_docstring_style.generate_docstrings(
-                            live_content, gen_style, model=gen_model,
-                            filename=selected_file
+                        result, tests, used_model = _generate_docstrings_with_fallback(
+                            original_code=live_content,
+                            target_style=gen_style,
+                            filename=selected_file,
+                            preferred_model=gen_model,
                         )
+                        _notify_fallback_if_needed("Docstring generation", gen_model, used_model)
+                        _notify_action_success("Docstring generation", selected_file, used_model)
                         st.session_state._converter_split[split_key] = {
                             "result": result, "original": live_content, "tests": tests,
                             "scope": "whole_file", "func_name": "",
                             "target_style": gen_style,
+                            "used_model": used_model,
                         }
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Generation failed: {e}")
+                        _notify_action_error("Generation", selected_file, e)
                         
         preview_code = live_content
 
@@ -1349,6 +1898,8 @@ def render_docstring_converter():
             # Apply
             if st.button("💾 Apply", key=f"conv_apply_{selected_file}", type="primary", use_container_width=True):
                 st.session_state.fixed_codes[selected_file] = result_code
+                if data.get("used_model"):
+                    st.session_state.fixed_codes["__model__" + selected_file] = data.get("used_model")
                 st.session_state.file_data[selected_file]['results'] = parser.parse_file(result_code)
                 
                 # Cache tests
@@ -1359,7 +1910,7 @@ def render_docstring_converter():
                         f.write(data["tests"])
                 
                 del st.session_state._converter_split[split_key]
-                st.toast("✅ Applied to source code and cached tests!")
+                _toast_with_activity("Applied to source code and cached tests!", kind="success", icon="✅")
                 st.rerun()
 
         with a2:
@@ -1380,7 +1931,7 @@ def render_docstring_converter():
                 }});
                 </script>
                 """, height=0, width=0)
-                st.toast("✅ Copied to clipboard!", icon="📋")
+                _toast_with_activity("Copied to clipboard!", kind="success", icon="📋")
 
         with a4:
             # Download
@@ -2149,8 +2700,10 @@ def render_overall_dashboard():
                                     st.session_state.pop('skipped_test_files', None)
                                     for d in ["workspace_tests/dynamic", "workspace_tests/cached"]:
                                         if os.path.exists(d):
-                                            try: shutil.rmtree(d)
-                                            except: pass
+                                            try:
+                                                shutil.rmtree(d)
+                                            except Exception as e:
+                                                _record_soft_warning(f"Clear Cache failed for {d}", e)
                                     st.rerun()
                         else:
                             # Use a column layout to ensure the CSS styling applies consistently
@@ -2184,17 +2737,21 @@ def render_overall_dashboard():
                     last_hash = st.session_state.get('_last_test_hash')
                     
                     if current_hash == last_hash and 'workspace_test_json' in st.session_state:
-                        st.toast("🚀 Instant Re-run: No changes detected, reusing results.", icon="⚡")
+                        _toast_with_activity("Instant Re-run: No changes detected, reusing results.", kind="info", icon="⚡")
                     else:
                         # 1. Nuclear clean (Preserve cached for lazy speed relative to AI, but clean dynamic for fresh report)
                         for d in [workspace_root, dynamic_test_dir, "__pycache__", ".pytest_cache"]:
                             if os.path.exists(d):
-                                try: shutil.rmtree(d)
-                                except: pass
+                                try:
+                                    shutil.rmtree(d)
+                                except Exception as e:
+                                    _record_soft_warning(f"Cleanup failed for {d}", e)
                         
                         if os.path.exists(fixed_test_dir):
-                            try: shutil.rmtree(fixed_test_dir)
-                            except: pass
+                            try:
+                                shutil.rmtree(fixed_test_dir)
+                            except Exception as e:
+                                _record_soft_warning(f"Cleanup failed for {fixed_test_dir}", e)
                         
                         os.makedirs(workspace_root, exist_ok=True)
                         os.makedirs(fixed_test_dir, exist_ok=True)
@@ -2307,16 +2864,23 @@ def render_overall_dashboard():
                             def _gen_task(args):
                                 fn, code, funcs, mid = args
                                 try:
-                                    t_code = generate_workspace_tests.generate_pytest_for_file(fn, code, funcs, model=mid)
+                                    t_code, _ = _generate_tests_with_fallback(
+                                        filename=fn,
+                                        original_code=code,
+                                        functions=funcs,
+                                        preferred_model=mid,
+                                    )
                                     tf_path = os.path.join(dynamic_test_dir, f"test_{fn}")
                                     os.makedirs(os.path.dirname(tf_path), exist_ok=True)
                                     with open(tf_path, "w", encoding="utf-8") as tf:
                                         tf.write(t_code)
                                     return True
-                                except: return False
+                                except Exception as e:
+                                    _record_soft_warning(f"Dynamic test generation failed for {fn}", e)
+                                    return False
 
                             model_id = st.session_state.fix_model
-                            with ThreadPoolExecutor(max_workers=4) as executor:
+                            with ThreadPoolExecutor(max_workers=min(2, len(to_generate))) as executor:
                                 list(executor.map(_gen_task, [(f, c, fs, model_id) for f, c, fs in to_generate]))
 
                         # 4.5 Normalize dynamic test imports so stale cache cannot break collection
@@ -2340,8 +2904,8 @@ def render_overall_dashboard():
 
                                 with open(tf_path, "w", encoding="utf-8") as wf:
                                     wf.write(normalized_test)
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                _record_soft_warning(f"Dynamic import normalization failed for {tf_path}", e)
                         
                         # 5. Environment & Execution
                         with open("conftest.py", "w") as f:
@@ -2357,8 +2921,10 @@ def render_overall_dashboard():
                         try:
                             # Robustness: Force delete old report to avoid reading stale data on failure
                             if os.path.exists(".workspace_report.json"):
-                                try: os.remove(".workspace_report.json")
-                                except: pass
+                                try:
+                                    os.remove(".workspace_report.json")
+                                except Exception as e:
+                                    _record_soft_warning("Failed deleting stale .workspace_report.json", e)
                                 
                             import sys
                             result = subprocess.run([
@@ -2642,7 +3208,8 @@ def render_overall_dashboard():
                                     try:
                                         with open(test_file_to_show, "r", encoding="utf-8") as tf:
                                             st.code(tf.read(), language="python")
-                                    except:
+                                    except Exception as e:
+                                        _record_soft_warning(f"Failed loading generated test preview for {f_name}", e)
                                         st.error("Could not load test file.")
                     
                     render_test_group("🛡️ App Health Test Suites", fixed_results, "workspace_tests/fixed")
@@ -3559,6 +4126,11 @@ def render_pep_validation_dashboard():
     with vcol0:
         st.markdown("<div class='val-navbar-title'>📋 Files &amp; Validation Breakdown</div>", unsafe_allow_html=True)
     with vcol1:
+        run_validation_test_gen = st.checkbox(
+            "Generate tests after fix (slower)",
+            key="validation_generate_tests_after_fix",
+            help="When off, Validation fixes update code only. Generate tests later from the Dashboard/Tests flow for faster fixes.",
+        )
         # Only show Fix All for files that have docstrings AND have errors
         files_needing_fix = [
             fname for fname, fdata in st.session_state.file_data.items()
@@ -3575,6 +4147,7 @@ def render_pep_validation_dashboard():
             ):
                 progress_bar = st.progress(0, text="Starting AI fixes...")
                 total = len(files_needing_fix)
+                unresolved_files = []
                 for idx, fname in enumerate(files_needing_fix):
                     display_fix_name = compress_name(fname, 24)
                     progress_bar.progress(
@@ -3596,41 +4169,83 @@ def render_pep_validation_dashboard():
                         # Ensure cache dir
                         os.makedirs("workspace_tests/cached", exist_ok=True)
                         
-                        fixed, _ = fix_code_with_ai.fix_docstrings(original, funcs, model=model, style=detected_style, filename=fname)
-                        
-                        if fixed != original:
-                            st.session_state.file_data[fname]['content'] = fixed
+                        current_code = original
+                        current_funcs = funcs
+                        updated_results = st.session_state.file_data[fname]['results']
+
+                        active_model = model
+
+                        # Some models need iterative feedback to fully satisfy all lint/doc rules.
+                        for _ in range(3):
+                            fixed, _, used_model = _fix_docstrings_with_fallback(
+                                original_code=current_code,
+                                functions_with_errors=current_funcs,
+                                style=detected_style,
+                                filename=fname,
+                                preferred_model=active_model,
+                            )
+                            _notify_fallback_if_needed(f"Fix All ({fname})", active_model, used_model)
+                            active_model = used_model
+                            if fixed == current_code:
+                                break
+
+                            current_code = fixed
+                            updated_results = parser.parse_file(current_code)
+                            if "error" in updated_results:
+                                break
+
+                            if updated_results.get('total_docstring_errors', 0) == 0:
+                                break
+
+                            current_funcs = updated_results.get('functions', [])
+
+                        if current_code != original:
+                            st.session_state.file_data[fname]['content'] = current_code
+                            st.session_state.fixed_codes["__model__" + fname] = active_model
+                            _notify_action_success("Fix", fname, active_model)
                             # Persist to workspace_context
                             ctx_path = f"workspace_context/{fname}"
                             with open(ctx_path, "w", encoding="utf-8") as f:
-                                f.write(fixed)
+                                f.write(current_code)
                             
                             # Re-parse first, then generate canonical tests from parsed functions.
-                            st.session_state.file_data[fname]['results'] = parser.parse_file(fixed)
+                            st.session_state.file_data[fname]['results'] = parser.parse_file(current_code)
                             updated_results = st.session_state.file_data[fname]['results']
                             cache_path = f"workspace_tests/cached/test_{fname}"
 
-                            if "error" not in updated_results:
+                            if run_validation_test_gen and "error" not in updated_results:
                                 updated_funcs = updated_results.get('functions', [])
                                 documented_funcs = [f for f in updated_funcs if f.get('has_docstring')]
                                 if updated_funcs and len(updated_funcs) == len(documented_funcs):
-                                    canonical_tests = generate_workspace_tests.generate_pytest_for_file(
-                                        fname,
-                                        fixed,
-                                        documented_funcs,
-                                        model=model,
+                                    canonical_tests, used_test_model = _generate_tests_with_fallback(
+                                        filename=fname,
+                                        original_code=current_code,
+                                        functions=documented_funcs,
+                                        preferred_model=active_model,
                                     )
                                     with open(cache_path, "w", encoding="utf-8") as f:
                                         f.write(canonical_tests)
+                                    _notify_fallback_if_needed(f"Test generation ({fname})", active_model, used_test_model)
+                                    _notify_action_success("Test generation", fname, used_test_model)
+                                    active_model = used_test_model
                                 elif os.path.exists(cache_path):
                                     # Avoid stale cached tests when file isn't fully documented yet.
                                     try:
                                         os.remove(cache_path)
                                     except Exception:
                                         pass
+
+                            if updated_results.get('total_docstring_errors', 0) > 0:
+                                unresolved_files.append(fname)
+                        else:
+                            unresolved_files.append(fname)
                     except Exception as e:
-                        st.error(f"Failed to fix `{fname}`: {e}")
+                        _notify_action_error("Fix", fname, e)
                 progress_bar.progress(1.0, text="✅ All files fixed!")
+                if unresolved_files:
+                    unresolved_display = ", ".join(compress_name(f, 24) for f in unresolved_files)
+                    unresolved_msg = f"Some files are still not fully fixed: {unresolved_display}. Try another model and run Fix All again."
+                    _toast_with_activity(unresolved_msg, kind="warning", icon="⚠️")
                 st.rerun()
         else:
             # Keep navbar height stable when the action button is not shown.
@@ -3703,15 +4318,18 @@ def render_pep_validation_dashboard():
                 with fix_col_model:
                     # Per-file model override
                     per_file_model_key = f"model_override_{fname}"
+                    per_file_widget_key = f"model_select_{fname}"
                     if per_file_model_key not in st.session_state:
                         st.session_state[per_file_model_key] = st.session_state.fix_model
+                    if per_file_widget_key not in st.session_state:
+                        st.session_state[per_file_widget_key] = st.session_state[per_file_model_key]
                     chosen_model = st.selectbox(
                         "Choose an AI Model to fix this file",
                         options=list(AVAILABLE_MODELS.keys()),
-                        index=list(AVAILABLE_MODELS.keys()).index(st.session_state[per_file_model_key]),
+                        index=_model_index(st.session_state[per_file_widget_key]),
                         format_func=lambda x: AVAILABLE_MODELS[x],
                         label_visibility="visible",
-                        key=f"model_select_{fname}"
+                        key=per_file_widget_key
                     )
                     st.session_state[per_file_model_key] = chosen_model
 
@@ -3737,39 +4355,65 @@ def render_pep_validation_dashboard():
                                 # Ensure cached directory exists
                                 os.makedirs("workspace_tests/cached", exist_ok=True)
 
-                                # fix_docstrings returns fixed code; tests are regenerated canonically below.
-                                fixed, _ = fix_code_with_ai.fix_docstrings(
-                                    original_code=original, 
-                                    functions_with_errors=funcs, 
-                                    model=model,
-                                    style=detected_style,
-                                    filename=fname
-                                )
+                                current_code = original
+                                current_funcs = funcs
+                                updated_results = st.session_state.file_data[fname]['results']
 
-                                if fixed != original:
-                                    st.session_state.file_data[fname]['content'] = fixed
+                                active_model = model
+
+                                # Retry a few times so non-top-tier models can converge.
+                                for _ in range(3):
+                                    fixed, _, used_model = _fix_docstrings_with_fallback(
+                                        original_code=current_code,
+                                        functions_with_errors=current_funcs,
+                                        style=detected_style,
+                                        filename=fname,
+                                        preferred_model=active_model,
+                                    )
+                                    _notify_fallback_if_needed(f"Fix ({fname})", active_model, used_model)
+                                    active_model = used_model
+                                    if fixed == current_code:
+                                        break
+
+                                    current_code = fixed
+                                    updated_results = parser.parse_file(current_code)
+                                    if "error" in updated_results:
+                                        break
+
+                                    if updated_results.get('total_docstring_errors', 0) == 0:
+                                        break
+
+                                    current_funcs = updated_results.get('functions', [])
+
+                                if current_code != original:
+                                    st.session_state.file_data[fname]['content'] = current_code
+                                    st.session_state.fixed_codes["__model__" + fname] = active_model
+                                    _notify_action_success("Fix", fname, active_model)
                                     # Update context
                                     ctx_path = f"workspace_context/{fname}"
                                     with open(ctx_path, "w", encoding="utf-8") as f:
-                                        f.write(fixed)
+                                        f.write(current_code)
                                     
                                     # Re-parse first, then generate canonical tests from parsed functions.
-                                    st.session_state.file_data[fname]['results'] = parser.parse_file(fixed)
+                                    st.session_state.file_data[fname]['results'] = parser.parse_file(current_code)
                                     updated_results = st.session_state.file_data[fname]['results']
                                     cache_path = f"workspace_tests/cached/test_{fname}"
 
-                                    if "error" not in updated_results:
+                                    if st.session_state.get("validation_generate_tests_after_fix", False) and "error" not in updated_results:
                                         updated_funcs = updated_results.get('functions', [])
                                         documented_funcs = [f for f in updated_funcs if f.get('has_docstring')]
                                         if updated_funcs and len(updated_funcs) == len(documented_funcs):
-                                            canonical_tests = generate_workspace_tests.generate_pytest_for_file(
-                                                fname,
-                                                fixed,
-                                                documented_funcs,
-                                                model=model,
+                                            canonical_tests, used_test_model = _generate_tests_with_fallback(
+                                                filename=fname,
+                                                original_code=current_code,
+                                                functions=documented_funcs,
+                                                preferred_model=active_model,
                                             )
+                                            _notify_fallback_if_needed(f"Test generation ({fname})", active_model, used_test_model)
                                             with open(cache_path, "w", encoding="utf-8") as f:
                                                 f.write(canonical_tests)
+                                            _notify_action_success("Test generation", fname, used_test_model)
+                                            active_model = used_test_model
                                         elif os.path.exists(cache_path):
                                             # Avoid stale cached tests when file isn't fully documented yet.
                                             try:
@@ -3777,9 +4421,13 @@ def render_pep_validation_dashboard():
                                             except Exception:
                                                 pass
 
+                                    if updated_results.get('total_docstring_errors', 0) > 0:
+                                        unresolved_msg = f"{compress_name(fname, 22)} still has unresolved validation issues. Try another model and run fix again."
+                                        _toast_with_activity(unresolved_msg, kind="warning", icon="⚠️")
+
                                     st.rerun()
                             except Exception as e:
-                                st.error(f"Fix failed: {e}")
+                                _notify_action_error("Fix", fname, e)
 
             # Show diff summary pills if fixed
             if is_fixed:
@@ -4183,13 +4831,14 @@ elif st.session_state.app_state == 'ide':
         new_fix_model = st.selectbox(
             "fix_model_selector",
             options=list(AVAILABLE_MODELS.keys()),
-            index=list(AVAILABLE_MODELS.keys()).index(st.session_state.fix_model),
+            index=_model_index(st.session_state.fix_model),
             format_func=lambda x: AVAILABLE_MODELS[x],
             label_visibility="collapsed",
-            key="fix_model_selector"
+            key="fix_model_selector",
+            on_change=_on_global_fix_model_change,
         )
         if new_fix_model != st.session_state.fix_model:
-            st.session_state.fix_model = new_fix_model
+            _set_selected_model(new_fix_model, sync_dropdowns=False)
         
         # Add Files uploader
         st.markdown('<div class="sidebar-section-label">Add Files</div>', unsafe_allow_html=True)
@@ -4328,4 +4977,5 @@ elif st.session_state.app_state == 'ide':
             </script>
             """, height=0, width=0)
 
+render_notifications_fab()
 render_faq_overlay()

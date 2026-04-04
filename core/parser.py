@@ -3,6 +3,8 @@ import re
 import tempfile
 import subprocess
 import os
+import copy
+from functools import lru_cache
 from typing import List, Dict, Any
 from core import convert_docstring_style
 
@@ -197,16 +199,10 @@ def get_ast_errors(file_content: str, functions: list, style: str = "Google") ->
 def parse_file(file_content: str) -> Dict[str, Any]:
     """Parse a Python file and extract function docstring details.
 
-    Args:
-        file_content: The full source code of the Python file.
-
-    Returns:
-        dict: Parsed results including functions, coverage, and errors.
+    Uses an in-process cache keyed by full file content so repeated reruns
+    don't repeatedly invoke external linters for unchanged code.
     """
-    try:
-        tree = ast.parse(file_content)
-    except SyntaxError:
-        return {"error": "Syntax Error: Could not parse file"}
+    return copy.deepcopy(_parse_file_cached(file_content))
 
 class FunctionVisitor(ast.NodeVisitor):
     def __init__(self):
@@ -239,20 +235,7 @@ class FunctionVisitor(ast.NodeVisitor):
             "docstring_errors": []
         })
 
-def parse_file(file_content: str) -> Dict[str, Any]:
-    """Parse a Python file and extract function docstring details.
-
-    Args:
-        file_content: The full source code of the Python file.
-
-    Returns:
-        dict: Parsed results including functions, coverage, and errors.
-    """
-    try:
-        tree = ast.parse(file_content)
-    except SyntaxError:
-        return {"error": "Syntax Error: Could not parse file"}
-
+def _parse_file_core(tree, file_content: str) -> Dict[str, Any]:
     visitor = FunctionVisitor()
     visitor.visit(tree)
     functions = visitor.functions
@@ -317,3 +300,13 @@ def parse_file(file_content: str) -> Dict[str, Any]:
         "total_docstring_errors": total_doc_errors,
         "detected_style":         file_style
     }
+
+
+# Keep compatibility with previous call-sites by routing through core function.
+@lru_cache(maxsize=256)
+def _parse_file_cached(file_content: str) -> Dict[str, Any]:
+    try:
+        tree = ast.parse(file_content)
+    except SyntaxError:
+        return {"error": "Syntax Error: Could not parse file"}
+    return _parse_file_core(tree, file_content)

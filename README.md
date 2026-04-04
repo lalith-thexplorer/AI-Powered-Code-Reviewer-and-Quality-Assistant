@@ -27,15 +27,10 @@ Whether you're reviewing legacy code, enforcing team standards, or scaling docum
 - **Multi-file batch analysis** — Process entire project folders with a single upload
 
 ### 🤖 AI-Powered Fixes
-- **LLM docstring repair** — Groq-powered fixes for PEP 257 violations, missing sections, and incomplete descriptions
-- **Model selection** — Choose from GPT-OSS 120B (default), Llama 3.3 70B, Qwen3 32B, and Kimi K2 for different performance/speed tradeoffs
-- **Syntax extraction & fallback** — Intelligently extracts code blocks from AI responses; falls back to original docstring if generation fails
-- **Batch fixing workflow** — Fix all errors in a file at once or apply model improvements selectively
+- **Model selection** — Choose from Llama 4 Scout (default), Compound Mini, Llama 3.3 70B, Kimi K2, GPT-OSS 120B, or GPT-OSS 20B for different performance/speed tradeoffs
 
 ### ✅ Validation (Three-Layer)
-- **PEP 257 compliance** — Validate against official Python docstring standards using pydocstyle
-- **darglint checking** — Enforce parameter/return documentation completeness across your codebase
-- **AST semantic analysis** — Custom validation for function signatures, decorators, async functions, and nested structures
+- **Faster fix mode** — Validation can skip follow-up test regeneration after fixes for quicker turnaround; enable the slower option only when you want fresh tests immediately
 
 ### 🧪 Testing
 - **Automated pytest generation** — AI generates full unit test suites for functions with mocks, edge cases, and assertions
@@ -291,10 +286,12 @@ Available models in core/fix_code_with_ai.py (`AVAILABLE_MODELS`):
 
 | Model ID | Display Name | Use Case |
 |----------|--------------|----------|
-| `openai/gpt-oss-120b` | 🧠 GPT-OSS 120B (Default) | Highest quality, slower |
-| `llama-3.3-70b-versatile` | ⚡ Llama 3.3 70B | Best overall quality & speed |
-| `qwen/qwen3-32b` | 🌊 Qwen3 32B | Fast, good accuracy |
-| `moonshotai/kimi-k2-instruct` | 🌙 Kimi K2 | Specialized, Asia-optimized |
+| `meta-llama/llama-4-scout-17b-16e-instruct` | 🚀 Llama 4 Scout 17B (Default) | Balanced quality and speed |
+| `groq/compound-mini` | ⚡ Compound Mini | Fast, high-throughput option |
+| `llama-3.3-70b-versatile` | 🧠 Llama 3.3 70B | Strong general-purpose quality |
+| `moonshotai/kimi-k2-instruct` | 🌙 Kimi K2 | Strong structured-output option |
+| `openai/gpt-oss-120b` | 🧩 GPT-OSS 120B | Higher quality, slower |
+| `openai/gpt-oss-20b` | 🧩 GPT-OSS 20B | Smaller/faster fallback option |
 
 ---
 

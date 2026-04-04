@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 _client = None
+MAX_OUTPUT_TOKENS = int(os.getenv("GROQ_MAX_OUTPUT_TOKENS", "2048"))
 
 
 def get_client():
@@ -167,34 +168,21 @@ def add(a, b):
 
 
 def _build_system_prompt(target_style: str, module_name: str = "module") -> str:
-    """Build the system prompt for docstring conversion/generation with dual output."""
+    """Build the system prompt for docstring conversion/generation."""
     example = STYLE_EXAMPLES[target_style]
-    return f'''You are a Python docstring and testing expert.
-Your job is to rewrite ALL docstrings into {target_style} format AND generate a comprehensive pytest suite for the code.
+    return f'''You are a Python docstring expert.
+Your job is to rewrite ALL docstrings into {target_style} format.
 
 STRICT RULES:
 1. Do NOT change any logic, variable names, function signatures, imports, or non-docstring code.
 2. Convert every existing docstring to {target_style} format.
 3. The summary line MUST be on the first line immediately after the opening triple-quote.
-4. TEST IMPORT: The code you are testing will be imported as `{module_name}`. Your pytest suite MUST include: `import pytest` AND `from {module_name} import *`
-5. You MUST output TWO separate code blocks in this exact order:
-6. Tests must be grounded only in behavior that is directly visible in the source code. Do NOT invent validation rules, fallback behavior, or crash behavior.
-7. Include edge cases only when they are clearly implied by the implementation.
-8. For float outputs, use formulas or tolerant `pytest.approx()` assertions instead of guessed rounded literals.
-9. Never assert `x == float('nan')` or `pytest.approx(float('nan'))`. If NaN behavior is tested, use `math.isnan(x)`.
-10. For string-producing functions, derive expected values from the implementation pattern rather than hand-typed literals.
-11. Avoid exotic inputs like NaN, infinity, -0.0, huge numbers, empty strings, or None unless the source code clearly makes those cases relevant.
-
-FIRST BLOCK: The COMPLETE Python file/function with converted docstrings.
-SECOND BLOCK: A robust `pytest` suite for that code. Use `pytest.approx()` for float comparisons.
+4. Preserve non-docstring formatting where possible.
+5. You MUST output ONE code block containing the COMPLETE Python file/function with converted docstrings.
 
 EXACT FORMAT:
 ```python
 # (The complete source code with {target_style} docstrings)
-```
-
-```python
-# (The pytest suite)
 ```
 '''
 
@@ -239,10 +227,10 @@ def convert_style(
     target_style: str,
     scope: str = "whole_file",
     func_name: str = "",
-    model: str = "llama-3.3-70b-versatile",
+    model: str = "meta-llama/llama-4-scout-17b-16e-instruct",
     filename: str = "module.py"
 ) -> tuple:
-    """Convert docstrings in Python code and generate tests.
+    """Convert docstrings in Python code.
 
     Returns:
         tuple: (full_file_code, generated_tests)
@@ -266,14 +254,14 @@ def convert_style(
         prompt_code = original_code
 
     sys_prompt = _build_system_prompt(target_style, module_name=module_name)
-    user_prompt = f"""Convert the docstrings in the code below to {target_style} style and write a pytest suite for it.
+    user_prompt = f"""Convert the docstrings in the code below to {target_style} style.
 
 CODE:
 ```python
 {prompt_code}
 ```
 
-Return the COMPLETE {'function' if scope == 'function' and func_name else 'file'} in the first code block, and the pytest suite in the second."""
+Return the COMPLETE {'function' if scope == 'function' and func_name else 'file'} in a single code block."""
 
     client = get_client()
     response = client.chat.completions.create(
@@ -283,7 +271,7 @@ Return the COMPLETE {'function' if scope == 'function' and func_name else 'file'
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.05,
-        max_tokens=8192,
+        max_tokens=MAX_OUTPUT_TOKENS,
     )
 
     raw = response.choices[0].message.content.strip()
@@ -311,17 +299,17 @@ Return the COMPLETE {'function' if scope == 'function' and func_name else 'file'
 def generate_docstrings(
     original_code: str,
     target_style: str,
-    model: str = "llama-3.3-70b-versatile",
+    model: str = "meta-llama/llama-4-scout-17b-16e-instruct",
     filename: str = "module.py"
 ) -> tuple:
-    """Generate missing docstrings and tests for all functions in a file.
+    """Generate missing docstrings for all functions in a file.
 
     Returns:
         tuple: (full_file_code, generated_tests)
     """
     module_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
     sys_prompt = _build_system_prompt(target_style, module_name=module_name)
-    user_prompt = f"""Add comprehensive {target_style}-style docstrings to ALL functions and methods that are missing them, and write a pytest suite for the code.
+    user_prompt = f"""Add comprehensive {target_style}-style docstrings to ALL functions and methods that are missing them.
 Do NOT remove or change existing code logic.
 
 CODE:
@@ -329,7 +317,7 @@ CODE:
 {original_code}
 ```
 
-Return the COMPLETE file in the first code block, and the pytest suite in the second."""
+Return the COMPLETE file in a single code block."""
 
     client = get_client()
     response = client.chat.completions.create(
@@ -339,7 +327,7 @@ Return the COMPLETE file in the first code block, and the pytest suite in the se
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.05,
-        max_tokens=8192,
+        max_tokens=MAX_OUTPUT_TOKENS,
     )
 
     raw = response.choices[0].message.content.strip()

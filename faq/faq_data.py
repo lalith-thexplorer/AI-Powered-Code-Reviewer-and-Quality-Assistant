@@ -394,6 +394,14 @@ FAQ_DATA = json.loads(r'''{
                                                "a":  "Common causes: API quota exceeded, network interrupted, or the function code is too complex for the AI. Wait a few minutes and retry, or try a different AI model."
                                            },
                                            {
+                                               "q":  "Why is validation faster now?",
+                                               "a":  "Validation no longer regenerates tests after every fix unless you enable the \"Generate tests after fix (slower)\" option. That keeps normal fix runs faster and reduces extra AI calls."
+                                           },
+                                           {
+                                               "q":  "Does the app clear temp workspace files on startup?",
+                                               "a":  "Yes. On each app start, temporary workspace folders are automatically cleaned so old file artifacts do not carry into the new session."
+                                           },
+                                           {
                                                "q":  "What does error code D200 mean?",
                                                "a":  "D200: Docstring has no summary line. Every docstring must start with a one-line summary. Fix: Add a concise summary sentence immediately after the opening triple-quotes, before any blank lines."
                                            },
@@ -620,6 +628,10 @@ FAQ_DATA = json.loads(r'''{
                                  {
                                      "q":  "What file formats can I add to my workspace?",
                                      "a":  "Only `.py` (Python) and `.zip` files. The uploader has a yellow dashed border. Zip files are automatically extracted; Python files are added directly."
+                                 },
+                                 {
+                                     "q":  "Can I stop the app from cleaning temp folders every time it starts?",
+                                     "a":  "No. The app now always cleans temporary workspace folders at startup to avoid stale files and old generated artifacts affecting the current session."
                                  },
                                  {
                                      "q":  "Why is the file list showing very long names truncated?",

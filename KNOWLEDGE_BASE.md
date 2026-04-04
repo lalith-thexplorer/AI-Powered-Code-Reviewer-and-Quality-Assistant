@@ -549,6 +549,8 @@ A: The page shows an info message "No functions match the criteria." and the tab
 
 - **Click Clear Cache** → All cached AI test files are deleted. When you rerun, tests are regenerated from scratch (slower but fresh).
 
+- **Generate tests after fix (slower) toggle** → When enabled in Validation, each successful fix can regenerate tests immediately. Leave it off for faster validation-only runs.
+
 - **Click individual test expander** → Shows detailed pass/fail status for each test in that file plus error explanations for failures.
 
 - **Click Fix now in DocStrings Tab** button → Navigates to DocStrings screen to generate missing docstrings.
@@ -570,6 +572,8 @@ A: The page shows an info message "No functions match the criteria." and the tab
 **TIPS:**
 
 - The first test run may take longer because the app generates AI test code from scratch. Rerun is faster if nothing changed.
+
+- Validation is faster by default because test regeneration after fixes is optional. Enable it only when you want fresh tests immediately after fixing docstrings.
 
 - If tests fail, expand the failing test file to see a human-readable explanation of what went wrong, plus the raw traceback.
 
@@ -789,6 +793,7 @@ A: Yes. Help documentation is built-in. You don't need internet to access it. Th
 - **Validation Navbar** — Frosted glass bar with:
   - `📋 Files & Validation Breakdown` text label (left).
   - `🔧 Fix All with AI (N files)` button (right, only if N files have fixable errors). Clicking this runs AI fixes on all error-containing files in parallel.
+  - `Generate tests after fix (slower)` toggle — Optional mode that regenerates tests after each fix. Leave it off for faster validation passes.
 
 - **File Expanders** — One expander per file:
   - Icon (✅ for clean, 🔴 for errors) and file name.
@@ -847,6 +852,8 @@ A: Yes. Help documentation is built-in. You don't need internet to access it. Th
 
 - Use per-file model selection to try different models on tricky files if one model's fixes aren't satisfactory.
 
+- Leave `Generate tests after fix (slower)` disabled when you want the fastest validation run. Turn it on only when you need fresh tests generated immediately after each fix.
+
 - Detailed explanations of every error code are available in the Validation screen FAQ (hover or click the question mark icon).
 
 **KNOWN ISSUES:**
@@ -887,6 +894,12 @@ A: Review the changes carefully—check the diff pills to see what was modified.
 
 Q: Why did the AI fix fail for my function?
 A: Common causes: API quota exceeded, network interrupted, or the function code is too complex for the AI. Wait a few minutes and retry, or try a different AI model.
+
+Q: Why is validation faster now?
+A: Validation no longer regenerates tests after every fix unless you enable the `Generate tests after fix (slower)` option. That keeps normal fix runs faster and reduces extra AI calls.
+
+Q: Does the app clear temp workspace files on startup?
+A: Yes. On each app start, temporary workspace folders are automatically cleaned so old file artifacts do not carry into the new session.
 
 [/SCREEN]
 

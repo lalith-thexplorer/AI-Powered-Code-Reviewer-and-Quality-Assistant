@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 _client = None
+MAX_OUTPUT_TOKENS = int(os.getenv("GROQ_MAX_OUTPUT_TOKENS", "2048"))
 
 def get_client():
     global _client
@@ -13,7 +14,7 @@ def get_client():
         _client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
     return _client
 
-DEFAULT_MODEL = "llama-3.3-70b-versatile"
+DEFAULT_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 def generate_pytest_for_file(filename: str, original_code: str, functions: list, model: str = DEFAULT_MODEL) -> str:
     """Call LLM to generate a pytest suite for the provided Python code.
@@ -106,7 +107,7 @@ Remember:
                 {"role": "user", "content": prompt}
             ],
             temperature=0.05,
-            max_tokens=8192,
+            max_tokens=MAX_OUTPUT_TOKENS,
         )
         
         test_code = response.choices[0].message.content.strip()
