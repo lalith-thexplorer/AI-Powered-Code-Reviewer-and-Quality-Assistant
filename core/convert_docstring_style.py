@@ -4,9 +4,8 @@ import os
 import re
 import ast
 from groq import Groq
-from dotenv import load_dotenv
 
-load_dotenv()
+from .groq_utils import get_groq_api_key
 
 _client = None
 MAX_OUTPUT_TOKENS = int(os.getenv("GROQ_MAX_OUTPUT_TOKENS", "2048"))
@@ -16,7 +15,7 @@ def get_client():
     """Return a cached Groq client, initializing lazily."""
     global _client
     if _client is None:
-        _client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+        _client = Groq(api_key=get_groq_api_key())
     return _client
 
 
